@@ -39,14 +39,6 @@ parser.add_argument('--cuda', type = int,default=3)
 
 
 
-
-
-
-
-
-
-
-
         
 def PRIMG_pretrain(args, device,task, index): 
 
@@ -131,9 +123,6 @@ def PRIMG_pretrain(args, device,task, index):
             fugraphs[name].x = fugraphs[name].x.detach()
 
 
-        
-
-
         pretrain_model, loss = PRIMG_gradient(args, task,pretrain_model,auxiliary,subgraphs,fugraphs,optimizer_all, MLPs,wdiscriminator,optimizer_wd,match_graph, epoch, device, file)
         
         if epoch%3==0:
@@ -145,32 +134,6 @@ def PRIMG_pretrain(args, device,task, index):
             valid_graph.split_modal_nodes(0.4)
 
 
-
-            '''
-            valid_graph.original_feats = {'text':valid_graph.text_feat,'vision':valid_graph.vision_feat, 'structure':valid_graph.structure_feat}
-            for valid in datas:
-                if valid == 'text':
-                    x = MLPs[valid](valid_graph.text_feat)
-                    dim = int(np.sum(args.dims[:datas.index(valid)]))
-                    x = torch.cat([x[:,:dim],valid_graph.text_feat,x[:,dim:]],dim=1)
-                    valid_graph.text_feat = x
-                if valid == 'vision':
-                    x = MLPs[valid](valid_graph.vision_feat)
-                    dim = int(np.sum(args.dims[:datas.index(valid)]))
-                    x = torch.cat([x[:,:dim],valid_graph.vision_feat,x[:,dim:]],dim=1)
-                    valid_graph.vision_feat = x
-                if valid == 'structure':
-                    x = MLPs[valid](valid_graph.structure_feat)
-                    dim = int(np.sum(args.dims[:datas.index(valid)]))
-                    x = torch.cat([x[:,:dim],valid_graph.structure_feat,x[:,dim:]],dim=1)
-                    valid_graph.structure_feat = x
-            
-            valid_graph = valid_graph.multimodal_to_flat_graph(args.dataset_task[args.dataset])
-            weights = OrderedDict(pretrain_model.named_parameters())
-            if args.dataset_task[args.dataset] == 'node':emb = pretrain_model.encode(valid_graph.x, valid_graph.edge_index, weights).detach()
-            else: emb = pretrain_model.encode(valid_graph.x,valid_graph.extra_info["train_edge_index"] , weights).detach()
-            loss=compute_acc_unsupervised(emb, args.dataset_task[args.dataset],valid_graph.extra_info)
-            '''
 
 
             for valid in datas:
@@ -203,16 +166,6 @@ def PRIMG_pretrain(args, device,task, index):
 
             
             #(task, text_feats,vision_feats,structure_feats,train_labels = None,test_labels = None,labels = None, test_index_positive = None, test_index_negative = None):
-             
-
-
-
-
-
-
-
-
-
 
 
             print(datas,loss)
@@ -221,11 +174,6 @@ def PRIMG_pretrain(args, device,task, index):
             file.write(str(round(loss,4))+'\n')
             file.flush()
             
-
-
-
-
-
 
             print('loss', loss, cnt, epoch)
             if loss > loss_value  and epoch > 20:
@@ -401,12 +349,6 @@ def PRIMG_test2(args, device, index, pretrain_task,ratio, modal_ratio, num, tune
 
 
 
-def parameter_beta_training(args,device):
-    for beta in [0.001,0.005,0.015,0.02,0.025,0.1]:
-        args.beta = beta
-        args.info = '_norm=true_beta_'+str(beta)
-        PRIMG_pretrain(args, device,'edge',0)
-        PRIMG_pretrain(args, device,'nmk',0)
 
 
 
