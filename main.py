@@ -46,9 +46,9 @@ parser.add_argument('--cuda', type = int,default=3)
 
 
 
-############main函数入口
+
         
-def PRIMG_pretrain(args, device,task, index):  # 这是之前的 main
+def PRIMG_pretrain(args, device,task, index): 
 
     
     file = open('./model/parameter/pretrain_process_for_{}_{}-{}-{}_{}_{}{}.csv'.format(args.dataset,args.modal_text,args.modal_vision,args.modal_structure,task, index,args.info), 'w')
@@ -398,63 +398,6 @@ def PRIMG_test2(args, device, index, pretrain_task,ratio, modal_ratio, num, tune
 
 
 
-
-def write_result_for_PRIMG(args,device): #,'books-nc':'node','ele-fashion':'node'
-    seed_everything(1234)
-    dataset_task={'sports-copurchase':'link','cloth-copurchase':'link','books-lp':'link'}
-    result_file = open('./results/primg_results_edge22222fintuning.csv', 'w')
-
-    for dataset in dataset_task.keys():
-        args.dataset = dataset
-        args.task = dataset_task[dataset]
-        ss1=args.dataset+','+args.task+','
-        for method in ['edge','nmk','sim','dgi']:
-            ss2=method+','
-            for ratio in [0.01,0.02,0.05,0.1]:
-                ss3=str(ratio)+','
-                for modal_ratio in [0.4,0.6,0.8,1]:
-                    ss4=str(modal_ratio)+','
-                    res = []
-                    for i in range(10,15):
-                        res.append(str(PRIMG_test2(args, device, i, method,ratio, modal_ratio, 0, tune = True)[-1]))
-                    for i in range(10,15):
-                        res.append(str(PRIMG_test2(args, device, i, method,ratio, modal_ratio, 5, tune = True)[-1]))
-
-                    ss5=','.join(res)
-                    ss = ss1+ss2+ss3+ss4+ss5+'\n'
-
-                    result_file.write(ss)
-                    result_file.flush()
-
-
-
-
-def write_result_for_PRIMG_test(args,device): #,'books-nc':'node','ele-fashion':'node'
-    seed_everything(1234)
-    dataset_task={'sports-copurchase':'link','cloth-copurchase':'link','books-lp':'link','books-nc':'node'}
-    result_file = open('./results/primg_results_edge_test_cross.csv', 'w')
-
-    for dataset in dataset_task.keys():
-        args.dataset = dataset
-        args.task = dataset_task[dataset]
-        ss1=args.dataset+','+args.task+','
-        for method in ['edge','nmk','dgi','sim']:
-            ss2=method+','
-            for ratio in [0.01,0.02]:
-                ss3=str(ratio)+','
-                for modal_ratio in [0.4,0.6]:
-                    ss4=str(modal_ratio)+','
-                    res = []
-                    for i in range(10,15):
-                        res.append(str(PRIMG_test2(args, device, i, method,ratio, modal_ratio, 0, tune = False)[-1]))
-                    for i in range(10,15):
-                        res.append(str(PRIMG_test2(args, device, i, method,ratio, modal_ratio, 5, tune = False)[-1]))
-
-                    ss5=','.join(res)
-                    ss = ss1+ss2+ss3+ss4+ss5+'\n'
-
-                    result_file.write(ss)
-                    result_file.flush()
 
 
 
