@@ -94,7 +94,7 @@ def PRIMG_pretrain(args, device,task, index):  # 这是之前的 main
 
 
     optimizer_all = torch.optim.Adam([{'params': params, 'lr': 0.0001},{'params': model_params}], lr=args.model_lr,
-                                     weight_decay=5e-4)  # 图数据还是应该单独更新
+                                     weight_decay=5e-4)  
 
 
 
@@ -269,7 +269,7 @@ def PRIMG_pretrain(args, device,task, index):  # 这是之前的 main
 
 
 
-def PRIMG_test1(args, device, index, pretrain_task,ratio, modal_ratio, num, tune = True): #最基础利用static graph 来直接测试
+def PRIMG_test1(args, device, index, pretrain_task,ratio, modal_ratio, num, tune = True): 
     dataset = args.dataset
     task = args.dataset_task[dataset]
     modals = args.modal_names
@@ -338,7 +338,7 @@ def PRIMG_test1(args, device, index, pretrain_task,ratio, modal_ratio, num, tune
 
 
 
-def PRIMG_test2(args, device, index, pretrain_task,ratio, modal_ratio, num, tune = False): #最基础利用合并模态来直接测试
+def PRIMG_test2(args, device, index, pretrain_task,ratio, modal_ratio, num, tune = False): 
 
     if num == 0: flag = True
     if num == 5: flag = False
@@ -475,44 +475,11 @@ if args.cuda != -1:
 else:
     device = torch.device("cpu")
 
-#write_result_for_PRIMG_test(args,device)
-
-# for _ in range(10,15):
-#     args.dataset = 'books-lp'
-#     MDP_train_fuse(args, device,'edge',_)
 
 PRIMG_test2(args, device, 10, 'dgi',0.02, 0.4, 5, tune = True)
 
-#parameter_beta_training(args, device)
-
-# result = []
-# for i in range(10,15):
-#     result.append(MDP_test2(args, device, i, 'edge',0.02, 0.4, 0, tune = False))
-# np.save('/home/lmk/imGAP/results/primg_trend_edge',np.array(result))
-
-# result = []
-# for i in range(10,15):
-#     result.append(MDP_test2(args, device, i, 'nmk',0.02, 0.4, 0, tune = False))
-# np.save('/home/lmk/imGAP/results/primg_trend_nmk',np.array(result))
-
-# result = []
-# for i in range(10,15):
-#     result.append(MDP_test2(args, device, i, 'dgi',0.02, 0.4, 0, tune = False))
-# np.save('/home/lmk/imGAP/results/primg_trend_dgi',np.array(result))
-
-# result = []
-# for i in range(10,15):
-#     result.append(MDP_test2(args, device, i, 'sim',0.02, 0.4, 0, tune = False))
-# np.save('/home/lmk/imGAP/results/primg_trend_sim',np.array(result))
 
 
-
-#MDP_train_fuse(args, device,'nmk',0)
-
-
-#为什么 不用norm训练的模型加上norm的测试在ele-fashion效果更好 nmk    edge dgi simXXX
-# book-nc这个数据集 用norm比较好
-# book-lp 用nmk norm训练和测试，效果比较好。0.1 distance训练的
 
 
 
