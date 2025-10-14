@@ -26,7 +26,7 @@ def negative_sampling_identify(pos_edge_index, num_nodes):
         return result
 
 
-    idx = (pos_edge_index[0] * num_nodes + pos_edge_index[1]) #这里是吧整个矩阵flatten
+    idx = (pos_edge_index[0] * num_nodes + pos_edge_index[1]) 
     idx = idx.to(torch.device('cpu'))
 
     rng =  [i * num_nodes+j for i in range(num_nodes) for j in range(num_nodes) if i<j ]  #range(num_nodes**2)
@@ -42,7 +42,7 @@ def negative_sampling_identify(pos_edge_index, num_nodes):
         rest = mask.nonzero(as_tuple = False).view(-1)
         index+=1
 
-    row, col = torch.div(perm, num_nodes,rounding_mode='floor'), perm % num_nodes   #????
+    row, col = torch.div(perm, num_nodes,rounding_mode='floor'), perm % num_nodes   
 
 
 
@@ -124,18 +124,7 @@ class test_graph:
 
 
     def get_sub_edge_index(self,edge_index, list_sample, relabel_nodes=True):
-        """
-        从 edge_index 中采样子图，只保留 list_sample 中的节点。
         
-        Args:
-            edge_index (LongTensor): 原图的 edge_index, shape [2, E]
-            list_sample (list or LongTensor): 保留的节点 ID 列表
-            relabel_nodes (bool): 是否将子图节点重新映射为从 0 开始的连续编号
-        
-        Returns:
-            sub_edge_index (LongTensor): 子图的 edge_index
-            node_mapping (dict): 如果 relabel_nodes=True，返回原节点ID到新ID的映射
-        """
         if not torch.is_tensor(list_sample):
             list_sample = torch.tensor(list_sample, dtype=torch.long)
 
@@ -224,40 +213,34 @@ class test_graph:
 
 
     def complete_modalities_graph(self,text_feats, vision_feats, structure_feats):
-        """
-        向量化补全缺失模态
-        text_feats, vision_feats, structure_feats: (N, d) torch.FloatTensor
-        text_list, vision_list, structure_list: list[int]
-        return: 补全后的 text_feats, vision_feats, structure_feats
-        """
+        
         N, d = text_feats.shape
 
         text_list, vision_list, structure_list = self.text_list,self.vision_list,self.structure_list
 
-        # 构造 mask (N,3) 三个模态
+
         mask = torch.zeros((N, 3), dtype=torch.float32, device=text_feats.device)
         mask[text_list, 0] = 1
         mask[vision_list, 1] = 1
         mask[structure_list, 2] = 1
 
-        # 把模态特征堆叠 (N, 3, d)
+
         feats = torch.stack([text_feats, vision_feats, structure_feats], dim=1)
 
-        # (N,1,d) 表示每个节点所有模态的加和
-        sum_feats = feats * mask.unsqueeze(-1)          # (N,3,d)，只保留已有模态
-        sum_feats = sum_feats.sum(dim=1, keepdim=True)  # (N,1,d)
+        sum_feats = feats * mask.unsqueeze(-1)          
+        sum_feats = sum_feats.sum(dim=1, keepdim=True)  
 
-        # (N,1,1) 每个节点有多少模态
+
         count = mask.sum(dim=1, keepdim=True).clamp(min=1).unsqueeze(-1)
 
-        # (N,1,d) 计算均值特征
+
         mean_feats = sum_feats / count
 
-        # 补全：如果某个模态缺失，则替换成均值特征
+
         mask_expand = mask.unsqueeze(-1)  # (N,3,1)
         feats_completed = feats * mask_expand + mean_feats * (1 - mask_expand)
 
-        # 拆开成三个 (N,d)
+
         text_feats_new, vision_feats_new, structure_feats_new = feats_completed.unbind(dim=1)
 
         return {'text':text_feats_new,'vision':vision_feats_new,'structure':structure_feats_new} 
@@ -283,7 +266,7 @@ class test_graph:
             has_structure = i in structure_set
 
             if has_text + has_vision + has_structure == 1:
-                # 仅有一个模态存在 → 补全其他两个
+                
                 if has_text:
                     visions.append(convert_text[i])
                     structures.append(convert_text[i])
@@ -298,7 +281,7 @@ class test_graph:
                     structures.append(convert_structure[i])
             
             elif has_text + has_vision + has_structure == 2:
-                # 缺失一个模态 → 用另外两个模态的平均
+                
                 if not has_text:
                     texts.append((convert_vision[i] + convert_structure[i]) / 2)
                     visions.append(convert_vision[i])
@@ -324,22 +307,7 @@ class test_graph:
 
 
     def multimodal_to_flat_graph(self,task ):
-        """
-        将多模态图展开成普通图 (PyG 格式)，支持节点分类和链路预测任务
-
-        参数:
-            edge_index: (2, E) 原图的边
-            text_feats, vision_feats, structure_feats: (N, d) 各模态特征
-            text_list, vision_list, structure_list: list[int] 哪些节点有对应模态
-            labels: (N,) 原始节点标签
-            task: "node_cls" | "link_pred"
-            train_idx, val_idx, test_idx: list[int] (node classification 专用)
-            train_edge_index, val_edge_index, test_edge_index, test_edge_index_negative: (2, M) tensor (link prediction 专用)
-
-        返回:
-            new_data: Data 对象
-            extra_info: dict，保存 train/val/test 的模态映射信息
-        """
+        
         
         device = self.edge_index.device
         edge_index = self.edge_index
@@ -367,7 +335,7 @@ class test_graph:
         node2modalities = {}  # node_id -> [new_node_ids]
         cur_id = 0
 
-        # 给每个模态生成新节点
+
         for i in range(N):
             node2modalities[i] = []
             if i in text_list:
@@ -390,7 +358,6 @@ class test_graph:
 
         edge_set = set()
 
-        # 1. 同一节点的不同模态互连
         for i in range(N):
             mods = node2modalities[i]
             for j in range(len(mods)):
@@ -399,7 +366,7 @@ class test_graph:
                     edge_set.add((u, v))
                     edge_set.add((v, u))
 
-        # 2. 邻居节点的模态互连
+
         E = edge_index.shape[1]
         for e in range(E):
             u, v = edge_index[0, e].item(), edge_index[1, e].item()
@@ -420,7 +387,7 @@ class test_graph:
         extra_info = {}
 
         if task == "node":
-            # 训练集：展开成模态节点
+
             train_nodes = [[],[]]
             
             for i in train_idx:
@@ -428,7 +395,7 @@ class test_graph:
                 train_nodes[1].extend([labels[i]]*len(node2modalities[i]))
             extra_info["train_idx"] =[np.array(train_nodes[0]),torch.LongTensor(train_nodes[1]).to(device)]
 
-            # 验证/测试：保留原始节点对应的模态节点集合
+
             val_nodes = [[],[],[]]
             for index,i in enumerate(val_idx):
                 val_nodes[0].extend([index]*len(node2modalities[i]))        	
@@ -448,7 +415,7 @@ class test_graph:
             
 
         elif task == "link":
-            # 训练集：展开成模态边
+
             train_edges = []
             for e in range(train_edge_index.shape[1]):
                 u, v = train_edge_index[0, e].item(), train_edge_index[1, e].item()
@@ -462,7 +429,7 @@ class test_graph:
                         train_edges.append((v, u))
             extra_info["train_edge_index"] = torch.LongTensor(train_edges).t().contiguous().to(device)
 
-            # 验证/测试：保留原始边映射到模态边集合
+
             def edge_map(edge_index,device):
                 res = [[],[]]
                 for e in range(edge_index.shape[1]):
@@ -535,7 +502,7 @@ class test_graph:
 
         N = self.text_feat.shape[0]
         r = modal_ratio
-        M = math.ceil(r * N)  # 每个模态目标节点数
+        M = math.ceil(r * N)  
 
         modal1 = set()
         modal2 = set()
