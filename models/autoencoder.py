@@ -40,7 +40,7 @@ def reset(nn):
 def negative_sampling(pos_edge_index, num_nodes):
 
 
-    idx = (pos_edge_index[0] * num_nodes + pos_edge_index[1]) #这里是吧整个矩阵flatten
+    idx = (pos_edge_index[0] * num_nodes + pos_edge_index[1]) 
     idx = idx.to(torch.device('cpu'))
 
     rng = range(num_nodes**2)
@@ -53,7 +53,7 @@ def negative_sampling(pos_edge_index, num_nodes):
         mask = torch.from_numpy(np.isin(perm, idx).astype(np.uint8))
         rest = mask.nonzero(as_tuple = False).view(-1)
 
-    row, col = torch.div(perm, num_nodes,rounding_mode='floor'), perm % num_nodes   #????
+    row, col = torch.div(perm, num_nodes,rounding_mode='floor'), perm % num_nodes   
 
 
 
@@ -71,7 +71,7 @@ def negative_sampling_identify(pos_edge_index, num_nodes):
         return result
 
 
-    idx = (pos_edge_index[0] * num_nodes + pos_edge_index[1]) #这里是吧整个矩阵flatten
+    idx = (pos_edge_index[0] * num_nodes + pos_edge_index[1]) 
     idx = idx.to(torch.device('cpu'))
 
     rng =  [i * num_nodes+j for i in range(num_nodes) for j in range(num_nodes) if i<j ]  #range(num_nodes**2)
@@ -87,7 +87,7 @@ def negative_sampling_identify(pos_edge_index, num_nodes):
         rest = mask.nonzero(as_tuple = False).view(-1)
         index+=1
 
-    row, col = torch.div(perm, num_nodes,rounding_mode='floor'), perm % num_nodes   #????
+    row, col = torch.div(perm, num_nodes,rounding_mode='floor'), perm % num_nodes   
 
 
 
@@ -665,65 +665,6 @@ class MyTask(MyGAE):
         return test_value
 
 
-    def GP_link_loss(self,graph,z,pos_edge_index):
-        if 3*z.size(0) < pos_edge_index.size(1):
-            pos_edge_index = pos_edge_index[:,np.random.choice(pos_edge_index.size(1),3*z.size(0),replace=False)]
-        pos_loss = -torch.log(self.decoder(graph = graph,z = z, edge_index= pos_edge_index, sigmoid=True) + EPS).mean()
-        neg_edge_index = negative_sampling(pos_edge_index, z.size(0))
-        neg_loss = -torch.log(
-            1 - self.decoder(graph = graph,z = z, edge_index= neg_edge_index, sigmoid=True) + EPS).mean()
-        return pos_loss + neg_loss
-
-
-
-    def GP_link_test(self,graph,z,pos_edge_index,neg_edge_index):
-        pos_y = z.new_ones(pos_edge_index.size(1))
-        neg_y = z.new_zeros(neg_edge_index.size(1))
-        y = torch.cat([pos_y, neg_y], dim=0)
-
-        pos_pred = self.decoder(graph,z, pos_edge_index, sigmoid=True)
-        neg_pred = self.decoder(graph,z, neg_edge_index, sigmoid=True)
-        pred = torch.cat([pos_pred, neg_pred], dim=0)
-        y, pred = y.detach().cpu().numpy(), pred.detach().cpu().numpy()
-        return roc_auc_score(y, pred), average_precision_score(y, pred)
-
-    def GP_node_loss(self,graph,x,target):
-        outputs = self.decoder(graph,x)[graph.train_labels]
-        return self.loss(outputs,target)
-
-    def GP_node_test(self,graph,x,target):
-        outputs = self.decoder(graph,x)[graph.test_labels]
-        if self.task == 'node':
-            labels = target.cpu().detach().numpy()
-
-
-            la = np.unique(labels)
-            if len(la) != outputs.shape[1]:
-                dic = OrderedDict(zip(la,np.arange(len(la))))
-                labels = [dic[_] for _ in labels]
-                auc= roc_auc_score(labels,torch.softmax(outputs[:,la],dim=1).cpu().detach(), average='macro',multi_class='ovr')
-            else: auc= roc_auc_score(target.cpu().detach(),torch.softmax(outputs,dim=1).cpu().detach(), average='macro',multi_class='ovr')
-        else: auc= roc_auc_score(target.cpu().detach(),torch.sigmoid(outputs).cpu().detach(), average='macro',multi_class='ovr')
-        
-        
-        
-        
-        
-        if self.task == 'node_m':
-
-            outputs[outputs > 0] = 1
-            outputs[outputs <= 0] = 0
-        else:
-            outputs = outputs.argmax(dim=1)
-
-        f1 = f1_score(target.cpu().detach(),outputs.cpu().detach(), average='micro')
-        return (f1,auc)
-
-
-
-
-
-
 
     
 
@@ -805,140 +746,4 @@ class MyVGAE(MyGAE):
 
     
 
-
-
-
-
-
-def euclidean_dist(x, y):
-    # x: N x D
-    # y: M x D
-    n = x.size(0)
-    m = y.size(0)
-    d = x.size(1)
-    if d != y.size(1):
-        raise Exception
-
-    x = x.unsqueeze(1).expand(n, m, d)
-    y = y.unsqueeze(0).expand(n, m, d)
-
-    return torch.pow(x - y, 2).sum(2)
-
-def proto_loss_spt(logits, y_t, n_support):
-    target_cpu = y_t.to('cpu')
-    input_cpu = logits.to('cpu')
-    
-    def supp_idxs(c):
-        return target_cpu.eq(c).nonzero()[:n_support].squeeze(1)
-
-    classes = torch.unique(target_cpu)
-
-    n_classes = len(classes)
-
-    n_query = n_support
-
-    support_idxs = list(map(supp_idxs, classes))
-
-    prototypes = torch.stack([input_cpu[idx_list].mean(0) for idx_list in support_idxs])
-
-
-
-    query_idxs = torch.stack(list(map(lambda c: target_cpu.eq(c).nonzero()[:n_support], classes))).view(-1)
-    query_samples = input_cpu[query_idxs]   
-    dists = euclidean_dist(query_samples, prototypes)
-    log_p_y = F.log_softmax(-dists, dim=1).view(n_classes, n_query, -1)
-
-    target_inds = torch.arange(0, n_classes)
-    target_inds = target_inds.view(n_classes, 1, 1)
-    target_inds = target_inds.expand(n_classes, n_query, 1).long()
-
-    loss_val = -log_p_y.gather(2, target_inds).squeeze().view(-1).mean()
-    #_, y_hat = log_p_y.max(2)
-    #acc_val = y_hat.eq(target_inds.squeeze()).float().mean()
-    #print('acc_val****',acc_val)
-
-    return loss_val, prototypes
-
-def proto_loss_qry(logits, y_t, prototypes):
-    target_cpu = y_t.to('cpu')
-    input_cpu = logits.to('cpu')
-
-    classes = torch.unique(target_cpu)
-    n_classes = len(classes)
-
-    n_query = int(logits.shape[0]/n_classes)
-
-    query_idxs = torch.stack(list(map(lambda c: target_cpu.eq(c).nonzero(), classes))).view(-1)
-    query_samples = input_cpu[query_idxs]
-
-    dists = euclidean_dist(query_samples, prototypes)
-
-    log_p_y = F.log_softmax(-dists, dim=1).view(n_classes, n_query, -1)
-
-    target_inds = torch.arange(0, n_classes)
-    target_inds = target_inds.view(n_classes, 1, 1)
-    target_inds = target_inds.expand(n_classes, n_query, 1).long()
-
-    loss_val = -log_p_y.gather(2, target_inds).squeeze().view(-1).mean()
-
-    return loss_val
-
-def proto_qry_result(logits, y_t, prototypes):
-    target_cpu = y_t.to('cpu')
-    input_cpu = logits.to('cpu')
-
-    classes = torch.unique(target_cpu)
-    n_classes = len(classes)
-
-    n_query = int(logits.shape[0]/n_classes)
-
-    query_idxs = torch.stack(list(map(lambda c: target_cpu.eq(c).nonzero(), classes))).view(-1)
-    query_samples = input_cpu[query_idxs]
-
-    dists = euclidean_dist(query_samples, prototypes)
-
-    log_p_y = F.log_softmax(-dists, dim=1).view(n_classes, n_query, -1)
-
-    target_inds = torch.arange(0, n_classes)
-    target_inds = target_inds.view(n_classes, 1, 1)
-    target_inds = target_inds.expand(n_classes, n_query, 1).long()
-
-    _, y_hat = log_p_y.max(2)
-    #acc_val = y_hat.eq(target_inds.squeeze()).float().mean()
-    #print('acc_val****',acc_val)
-
-
-    return y_hat
-
-
-
-
-
-class GPDecoder(torch.nn.Module):
-    def __init__(self, in_channels):
-        super(GPDecoder, self).__init__()
-        self.weight = Parameter(torch.Tensor(1,in_channels))
-        torch.nn.init.xavier_uniform_(self.weight)
-
-    def forward(self, graph,z, edge_index = None, sigmoid=True):
-        
-        if graph.task == 'link':
-            value = F.cosine_similarity(z[edge_index[0]],z[edge_index[1]],dim=-1)
-            return torch.sigmoid(value) if sigmoid else value
-        centroids = []
-        z=z*self.weight
-        for i in range(graph.num_classes):
-            lab = graph.labels[graph.train_labels]
-            if graph.task == 'node':tmp = (lab == i)
-            if graph.task == 'node_m':tmp = (lab[:,i]==1)
-            if tmp.sum() == 0:centroids.append(z[graph.train_labels].mean(0))
-            else: centroids.append(z[graph.train_labels][tmp].mean(0)) 
-            c = torch.vstack(centroids).to(z)
-
-        z = z.unsqueeze(1)
-        c = c.unsqueeze(0)
-        #distance = F.cosine_similarity(z,c,dim=-1)
-        distance = F.pairwise_distance(z,c)
-        distance = 1/F.normalize(distance, dim=1)
-        return distance
 

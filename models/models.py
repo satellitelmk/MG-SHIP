@@ -59,823 +59,6 @@ class Encoder(torch.nn.Module):
 
 
 
-class MetaMLPEncoder(torch.nn.Module):
-    def __init__(self, args, in_channels, out_channels):
-        super(MetaMLPEncoder, self).__init__()
-        self.args = args
-        self.fc1 = nn.Linear(in_channels, 2 * out_channels, bias=True)
-        if args.model in ['GAE']:
-            self.fc_mu = nn.Linear(2 * out_channels, out_channels, bias=True)
-        elif args.model in ['VGAE']:
-            self.fc_mu = nn.Linear(2 * out_channels, out_channels, bias=True)
-            self.fc_logvar = nn.Linear(2 * out_channels, out_channels, bias=True)
-
-    def forward(self, x, edge_index, weights, inner_loop=True):
-        x = F.relu(F.linear(x, weights['encoder.fc1.weight'],weights['encoder.fc1.bias']))
-        if self.args.model in ['GAE']:
-            return F.relu(F.linear(x, weights['encoder.fc_mu.weight'],weights['encoder.fc_mu.bias']))
-        elif self.args.model in ['VGAE']:
-            return F.relu(F.linear(x,weights['encoder.fc_mu.weight'],\
-                    weights['encoder.fc_mu.bias'])),F.relu(F.linear(x,\
-                    weights['encoder.fc_logvar.weight'],weights['encoder.fc_logvar.bias']))
-
-class MLPEncoder(torch.nn.Module):
-    def __init__(self, args, in_channels, out_channels):
-        super(MLPEncoder, self).__init__()
-        self.args = args
-        self.fc1 = nn.Linear(in_channels, 2 * out_channels, bias=True)
-        self.fc2 = nn.Linear(2 * out_channels, out_channels, bias=True)
-
-    def forward(self, x, edge_index):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        return x
-
-
-
-
-class LampSignature(torch.nn.Module):
-    def __init__(self, args, in_channels, out_channels):
-        super(GraphSignature, self).__init__()
-        self.args = args
-        if self.args.use_gcn_sig:
-            self.conv1 = MetaGCNConv(in_channels, 2*out_channels, cached=False)
-            self.fc1 = nn.Linear(2*out_channels, 2*out_channels, bias=True)
-            self.fc2 = nn.Linear(2*out_channels, 2*out_channels, bias=True)
-            self.fc3 = nn.Linear(2*out_channels, out_channels, bias=True)
-            self.fc4 = nn.Linear(2*out_channels, out_channels, bias=True)
-        else:
-            self.gated_conv1 = MetaGatedGraphConv(in_channels, args.num_gated_layers)
-            self.fc1 = nn.Linear(in_channels, 2 * out_channels, bias=True)
-            self.fc2 = nn.Linear(in_channels, 2 * out_channels, bias=True)
-            self.fc3 = nn.Linear(in_channels, out_channels, bias=True)
-            self.fc4 = nn.Linear(in_channels, out_channels, bias=True)
-
-    def forward(self, x, edge_index, weights, keys):
-        if self.args.use_gcn_sig:
-            x = F.relu(self.conv1(x, edge_index, \
-                    weights['encoder.signature.conv1.weight'],\
-                    weights['encoder.signature.conv1.bias']))
-        else:
-            x = F.relu(self.gated_conv1(x, edge_index, weights,keys))
-
-        x = x.sum(0)
-        x_gamma_1 = F.linear(x, weights['encoder.signature.fc1.weight'],\
-                weights['encoder.signature.fc1.bias'])
-        x_beta_1 = F.linear(x, weights['encoder.signature.fc2.weight'],\
-                weights['encoder.signature.fc2.bias'])
-        x_gamma_2 = F.linear(x, weights['encoder.signature.fc3.weight'],\
-                weights['encoder.signature.fc3.bias'])
-        x_beta_2 = F.linear(x, weights['encoder.signature.fc4.weight'],\
-                weights['encoder.signature.fc4.bias'])
-        return torch.tanh(x_gamma_1), torch.tanh(x_beta_1),\
-                torch.tanh(x_gamma_2), torch.tanh(x_beta_2)
-
-
-class LampGraphSignature_new(torch.nn.Module):   # 这个signature 为每一个gcn层都计算了一个，从每一个层的角度来看要怎么modulation
-    def __init__(self, args, in_channels, out_channels):
-        super(LampGraphSignature2, self).__init__()
-        self.args = args
-        if self.args.use_gcn_sig:
-            self.conv1 = MetaGCNConv(in_channels, out_channels, cached=False)
-            self.conv2 = MetaGCNConv(in_channels, out_channels, cached=False)
-            self.conv3 = MetaGCNConv(in_channels, out_channels, cached=False)
-
-            self.sigattn = signature_attention(out_channels, 3)
-
-
-            self.fc1 = nn.Linear(out_channels, out_channels, bias=True)
-            self.fc2 = nn.Linear(out_channels, out_channels, bias=True)
-
-    def forward(self, xs, edge_indexs, weights, keys):
-        if self.args.use_gcn_sig:
-            x1 = F.relu(self.conv1(xs[0], edge_indexs[0], \
-                                   weights['encoder.signature.conv1.weight'], \
-                                   weights['encoder.signature.conv1.bias']))
-            x1 = x1.sum(0)
-            x2 = F.relu(self.conv1(xs[1], edge_indexs[1], \
-                                   weights['encoder.signature.conv2.weight'], \
-                                   weights['encoder.signature.conv2.bias']))
-            x2 = x2.sum(0)
-            x3 = F.relu(self.conv1(xs[2], edge_indexs[2], \
-                                   weights['encoder.signature.conv3.weight'], \
-                                   weights['encoder.signature.conv3.bias']))
-            x3 = x3.sum(0)
-
-            x = self.sigattn([x1, x2, x3])
-
-        x_gamma = F.linear(x, weights['encoder.signature.fc1.weight'], \
-                             weights['encoder.signature.fc1.bias'])
-        x_beta = F.linear(x, weights['encoder.signature.fc2.weight'], \
-                            weights['encoder.signature.fc2.bias'])
-
-        return torch.tanh(x_gamma), torch.tanh(x_beta)
-
-
-
-
-class LampGraphSignature2(torch.nn.Module):
-    def __init__(self, args, in_channels, out_channels):
-        super(LampGraphSignature2, self).__init__()
-        self.args = args
-        if self.args.use_gcn_sig:
-            self.conv1 = MetaGCNConv(in_channels, 2*out_channels, cached=False)
-            self.conv2 = MetaGCNConv(in_channels, 2 * out_channels, cached=False)
-            self.conv3 = MetaGCNConv(in_channels, 2 * out_channels, cached=False)
-
-            self.sigattn = signature_attention(2 * out_channels,3)
-
-            self.fc1 = nn.Linear(2*out_channels, 2*out_channels, bias=True)
-            self.fc2 = nn.Linear(2*out_channels, 2*out_channels, bias=True)
-            self.fc3 = nn.Linear(2*out_channels, out_channels, bias=True)
-            self.fc4 = nn.Linear(2*out_channels, out_channels, bias=True)
-
-
-    def forward(self, xs, edge_indexs, weights, key):
-
-
-        if key == 0:
-       
-            x1 = F.relu(self.conv1(xs[0], edge_indexs[0], \
-                    weights['encoder.signature.conv1.weight'],\
-                    weights['encoder.signature.conv1.bias']))
-                  
-            x1 = x1.sum(0)
-            x2 = F.relu(self.conv2(xs[1], edge_indexs[1], \
-                    weights['encoder.signature.conv2.weight'], \
-                    weights['encoder.signature.conv2.bias']))
-            x2 = x2.sum(0)
-            x3 = F.relu(self.conv3(xs[2], edge_indexs[2], \
-                    weights['encoder.signature.conv3.weight'], \
-                    weights['encoder.signature.conv3.bias']))
-            x3 = x3.sum(0)
-
-
-            x = self.sigattn([x1,x2,x3])
-        elif key==1:
-            x1 = F.relu(self.conv1(xs, edge_indexs, \
-                                   weights['encoder.signature.conv1.weight'], \
-                                   weights['encoder.signature.conv1.bias']))
-            x = x1.sum(0)
-
-        elif key==2:
-            x2 = F.relu(self.conv2(xs, edge_indexs, \
-                                   weights['encoder.signature.conv1.weight'], \
-                                   weights['encoder.signature.conv1.bias']))
-            x = x2.sum(0)
-
-        else:
-            x3 = F.relu(self.conv3(xs, edge_indexs, \
-                                   weights['encoder.signature.conv1.weight'], \
-                                   weights['encoder.signature.conv1.bias']))
-            x = x3.sum(0)
-
-
-        x_gamma_1 = F.linear(x, weights['encoder.signature.fc1.weight'],\
-                weights['encoder.signature.fc1.bias'])
-        x_beta_1 = F.linear(x, weights['encoder.signature.fc2.weight'],\
-                weights['encoder.signature.fc2.bias'])
-        x_gamma_2 = F.linear(x, weights['encoder.signature.fc3.weight'],\
-                weights['encoder.signature.fc3.bias'])
-        x_beta_2 = F.linear(x, weights['encoder.signature.fc4.weight'],\
-                weights['encoder.signature.fc4.bias'])
-        return torch.tanh(x_gamma_1), torch.tanh(x_beta_1),\
-                torch.tanh(x_gamma_2), torch.tanh(x_beta_2)
-
-class LampGraphSignature2(torch.nn.Module):
-    def __init__(self, args, in_channels, out_channels):
-        super(LampGraphSignature, self).__init__()
-        self.args = args
-        if self.args.use_gcn_sig:
-            self.conv1 = MetaGCNConv(in_channels, 2*out_channels, cached=False)
-            self.conv2 = MetaGCNConv(in_channels, 2 * out_channels, cached=False)
-            self.conv3 = MetaGCNConv(in_channels, 2 * out_channels, cached=False)
-
-            self.sigattn = signature_attention(2 * out_channels,3)
-
-            self.fc1 = nn.Linear(2*out_channels, 2*out_channels, bias=True)
-            self.fc2 = nn.Linear(2*out_channels, 2*out_channels, bias=True)
-            self.fc3 = nn.Linear(2*out_channels, out_channels, bias=True)
-            self.fc4 = nn.Linear(2*out_channels, out_channels, bias=True)
-
-
-    def forward(self, x, edge_index, weights,keys):
-
-        if self.args.use_gcn_sig:
-            x1 = F.relu(self.conv1(x, edge_index, \
-                    weights['encoder.signature.conv1.weight'],\
-                    weights['encoder.signature.conv1.bias']))
-            x1 = x1.mean(0)
-            x2 = F.relu(self.conv2(x, edge_index, \
-                    weights['encoder.signature.conv2.weight'], \
-                    weights['encoder.signature.conv2.bias']))
-            x2 = x2.mean(0)
-            x3 = F.relu(self.conv3(x, edge_index, \
-                    weights['encoder.signature.conv3.weight'], \
-                    weights['encoder.signature.conv3.bias']))
-            x3 = x3.mean(0)
-
-
-            x = self.sigattn([x1,x2,x3])
-
-
-        x_gamma_1 = F.linear(x, weights['encoder.signature.fc1.weight'],\
-                weights['encoder.signature.fc1.bias'])
-        x_beta_1 = F.linear(x, weights['encoder.signature.fc2.weight'],\
-                weights['encoder.signature.fc2.bias'])
-        x_gamma_2 = F.linear(x, weights['encoder.signature.fc3.weight'],\
-                weights['encoder.signature.fc3.bias'])
-        x_beta_2 = F.linear(x, weights['encoder.signature.fc4.weight'],\
-                weights['encoder.signature.fc4.bias'])
-        return x_gamma_1, x_beta_1,x_gamma_2, x_beta_2
-
-class LampGraphSignature(torch.nn.Module):
-    def __init__(self, args, in_channels, out_channels):
-        super(LampGraphSignature, self).__init__()
-        self.args = args
-        if self.args.use_gcn_sig:
-            self.conv1 = MetaGCNConv(in_channels, 2*out_channels, cached=False)
-            self.conv2 = MetaGCNConv(in_channels, 2 * out_channels, cached=False)
-            self.conv3 = MetaGCNConv(in_channels, 2 * out_channels, cached=False)
-
-            self.sigattn = signature_attention(2 * out_channels,3)
-
-            self.fc1 = nn.Linear(2*out_channels, 2*out_channels, bias=True)
-            self.fc2 = nn.Linear(2*out_channels, 2*out_channels, bias=True)
-            self.fc3 = nn.Linear(2*out_channels, out_channels, bias=True)
-            self.fc4 = nn.Linear(2*out_channels, out_channels, bias=True)
-    '''
-    def reset_parameters(self):
-
-        self.conv1.reset_parameters()
-        self.conv2.reset_parameters()
-        self.conv3.reset_parameters()
-        self.fc1.reset_parameters()
-        self.fc2.reset_parameters()
-        self.fc3.reset_parameters()
-        self.fc4.reset_parameters()
-
-        self.sigattn.reset_parameters()
-    '''
-
-    def forward(self, x, edge_index, weights,keys):
-
-        if self.args.use_gcn_sig:
-            x1 = F.relu(self.conv1(x, edge_index, \
-                    weights['encoder.signature.conv1.weight'],\
-                    weights['encoder.signature.conv1.bias']))
-            x1 = x1.mean(0)
-            x2 = F.relu(self.conv2(x, edge_index, \
-                    weights['encoder.signature.conv2.weight'], \
-                    weights['encoder.signature.conv2.bias']))
-            x2 = x2.mean(0)
-            x3 = F.relu(self.conv3(x, edge_index, \
-                    weights['encoder.signature.conv3.weight'], \
-                    weights['encoder.signature.conv3.bias']))
-            x3 = x3.mean(0)
-
-
-            x = self.sigattn([x1,x2,x3])
-
-
-        x_gamma_1 = F.linear(x, weights['encoder.signature.fc1.weight'],\
-                weights['encoder.signature.fc1.bias'])
-        x_beta_1 = F.linear(x, weights['encoder.signature.fc2.weight'],\
-                weights['encoder.signature.fc2.bias'])
-        x_gamma_2 = F.linear(x, weights['encoder.signature.fc3.weight'],\
-                weights['encoder.signature.fc3.bias'])
-        x_beta_2 = F.linear(x, weights['encoder.signature.fc4.weight'],\
-                weights['encoder.signature.fc4.bias'])
-        return torch.tanh(x_gamma_1), torch.tanh(x_beta_1),\
-                torch.tanh(x_gamma_2), torch.tanh(x_beta_2)
-
-
-
-
-
-
-
-
-class GraphSignature(torch.nn.Module):
-    def __init__(self, args, in_channels, out_channels):
-        super(GraphSignature, self).__init__()
-        self.args = args
-        if self.args.use_gcn_sig:
-            self.conv1 = MetaGCNConv(in_channels, 2*out_channels, cached=False)
-            self.fc1 = nn.Linear(2*out_channels, 2*out_channels, bias=True)
-            self.fc2 = nn.Linear(2*out_channels, 2*out_channels, bias=True)
-            self.fc3 = nn.Linear(2*out_channels, out_channels, bias=True)
-            self.fc4 = nn.Linear(2*out_channels, out_channels, bias=True)
-            self.class_weight = nn.Linear(2*out_channels, 2*out_channels, bias=True)
-        else:
-            self.gated_conv1 = MetaGatedGraphConv(in_channels, args.num_gated_layers)
-            self.fc1 = nn.Linear(in_channels, 2 * out_channels, bias=True)
-            self.fc2 = nn.Linear(in_channels, 2 * out_channels, bias=True)
-            self.fc3 = nn.Linear(in_channels, out_channels, bias=True)
-            self.fc4 = nn.Linear(in_channels, out_channels, bias=True)
-
-    def forward(self, x, edge_index, weights, keys, classes = None):
-        if self.args.use_gcn_sig:
-            x = F.relu(self.conv1(x, edge_index, \
-                    weights['encoder.signature.conv1.weight'],\
-                    weights['encoder.signature.conv1.bias']))
-        else:
-            x = F.relu(self.gated_conv1(x, edge_index, weights,keys))
-        if classes is not None: 
-            class_feature = F.linear(x[classes].mean(0), weights['encoder.signature.class_weight.weight'],\
-                weights['encoder.signature.class_weight.bias'])
-            x = x.mean(0) + class_feature
-        else: x = x.mean(0)
-        x_gamma_1 = F.linear(x, weights['encoder.signature.fc1.weight'],\
-                weights['encoder.signature.fc1.bias'])
-        x_beta_1 = F.linear(x, weights['encoder.signature.fc2.weight'],\
-                weights['encoder.signature.fc2.bias'])
-        x_gamma_2 = F.linear(x, weights['encoder.signature.fc3.weight'],\
-                weights['encoder.signature.fc3.bias'])
-        x_beta_2 = F.linear(x, weights['encoder.signature.fc4.weight'],\
-                weights['encoder.signature.fc4.bias'])
-        return torch.tanh(x_gamma_1), torch.tanh(x_beta_1),\
-                torch.tanh(x_gamma_2), torch.tanh(x_beta_2)
-
-
-class signature_attention(nn.Module):
-    def __init__(self, in_channels,out_channels):
-        super(signature_attention, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-
-        self.fc1 = nn.Linear(in_channels*out_channels,in_channels)
-        self.fc2 = nn.Linear(in_channels,in_channels)
-        self.fc3 = nn.Linear(in_channels,out_channels)
-
-
-
-        #self.reset_parameters()
-
-    def forward(self,Xs):  #考虑用一个还是三个来计算key
-
-        #print(Xs)
-
-
-        x_in = torch.cat(Xs)
-        x_out = self.fc2(F.relu(self.fc1(x_in)))
-        x_out = self.fc3(F.relu(x_out))
-        #print(x_out)
-
-        #print(x_out.detach())
-        x_out = torch.softmax(x_out,dim=-1)
-        self.class_out = x_out
-        #print(x_out.detach())
-
-
-
-        return torch.matmul(x_out , x_in.reshape(self.out_channels,self.in_channels))
-
-
-    def reset_parameters(self):
-        glorot(self.fc1.weight)
-        glorot(self.fc2.weight)
-
-
-
-
-
-
-
-
-
-
-class MetaSignatureEncoder(torch.nn.Module):
-    def __init__(self, args, in_channels, out_channels):
-        super(MetaSignatureEncoder, self).__init__()
-        self.args = args
-        self.conv1 = MetaGCNConv(in_channels, 2 * out_channels, cached=False)
-        if args.model in ['GAE']:
-            self.conv2 = MetaGCNConv(2 * out_channels, out_channels, cached=False)
-        elif args.model in ['VGAE']:
-            self.conv_mu = MetaGCNConv(2 * out_channels, out_channels, cached=False)
-            self.conv_logvar = MetaGCNConv(
-                2 * out_channels, out_channels, cached=False)
-        # in_channels is the input feature dim
-        self.signature = GraphSignature(args, in_channels, out_channels)
-
-    def forward(self, x, edge_index, weights, inner_loop=True):
-        keys = list(weights.keys())
-        sig_keys = [key for key in keys if 'signature' in key]
-        if inner_loop:
-            with torch.no_grad():
-                sig_gamma_1, sig_beta_1, sig_gamma_2, sig_beta_2 = self.signature(x, edge_index, weights, sig_keys)
-                self.cache_sig_out = [sig_gamma_1,sig_beta_1,sig_gamma_2,sig_beta_2]
-        else:
-            sig_gamma_1, sig_beta_1, sig_gamma_2, sig_beta_2 = self.signature(x, edge_index, weights, sig_keys)
-            self.cache_sig_out = [sig_gamma_1,sig_beta_1,sig_gamma_2,sig_beta_2]
-
-        x = F.relu(self.conv1(x, edge_index, weights['encoder.conv1.weight'],\
-                weights['encoder.conv1.bias'], gamma=sig_gamma_1, beta=sig_beta_1))
-        if self.args.layer_norm:
-            x = nn.LayerNorm(x.size()[1:], elementwise_affine=False)(x)
-        if self.args.model in ['GAE']:
-            x = self.conv2(x, edge_index,weights['encoder.conv2.weight'],\
-                    weights['encoder.conv2.bias'],gamma=sig_gamma_2, beta=sig_beta_2)
-            if self.args.layer_norm:
-                x = nn.LayerNorm(x.size()[1:], elementwise_affine=False)(x)
-            return x
-        elif self.args.model in ['VGAE']:
-            mu = self.conv_mu(x,edge_index,weights['encoder.conv_mu.weight'],\
-                    weights['encoder.conv_mu.bias'], gamma=sig_gamma_2, beta=sig_beta_2)
-            sig = self.conv_logvar(x,edge_index,weights['encoder.conv_logvar.weight'],\
-                weights['encoder.conv_logvar.bias'], gamma=sig_gamma_2, beta=sig_beta_2)
-            if self.args.layer_norm:
-                mu = nn.LayerNorm(mu.size()[1:], elementwise_affine=False)(mu)
-                sig = nn.LayerNorm(sig.size()[1:], elementwise_affine=False)(sig)
-            return mu, sig
-
-
-
-
-
-
-
-# 考虑两项任务相结合的encoder before
-class LampSignatureEncoder3(torch.nn.Module):  #先考虑合并起来的情况
-    def __init__(self, args, in_channels, out_channels):
-        super(LampSignatureEncoder3, self).__init__()
-        self.args = args
-        self.conv1 = MetaGCNConv(in_channels, 2 * out_channels,  cached=False)
-        self.conv2 = MetaGCNConv(2 * out_channels, out_channels,  cached=False)
-
-        self.signature = GraphSignature(args, in_channels, out_channels)
-        self.gating_weight1 = Parameter(torch.Tensor(in_channels, 2 * out_channels))
-        self.gating_weight2 = Parameter(torch.Tensor(2 * out_channels, out_channels))
-
-        glorot(self.gating_weight1)
-        glorot(self.gating_weight2)
-
-
-
-
-    def forward(self, x, edge_index, weights):
-        x = F.relu(self.conv1(x, edge_index, \
-                weights['encoder.conv1.weight'],weights['encoder.conv1.bias']))
-        return self.conv2(x, edge_index,\
-                weights['encoder.conv2.weight'],weights['encoder.conv2.bias'])
-
-
-
-
-    def modulate(self, x, edge_index, weights,classes = None):
-
-        dic = OrderedDict()
-
-
-        keys = list(weights.keys())
-        sig_keys = [key for key in keys if 'signature' in key]
-        gamma1, beta1, gamma2, beta2 = self.signature(x, edge_index, weights, sig_keys,classes)
-
-        x1 = self.conv1(x, edge_index, weights['encoder.conv1.weight'],weights['encoder.conv1.bias'])
-        x2 = self.conv2(F.relu(x1), edge_index, weights['encoder.conv2.weight'],weights['encoder.conv2.bias'])
-
-        alpha = torch.sigmoid(torch.mul(x1.mean(0).T, self.gating_weight1))
-        gamma = torch.mul(alpha, gamma1) + torch.mul(1 - alpha, torch.ones_like(gamma1))
-        beta = torch.mul(alpha, beta1) + torch.mul(1 - alpha, torch.ones_like(beta1))
-
-        weight1 = torch.mul(self.conv1.weight, gamma)
-        bias1 = self.conv1.bias
-
-        dic['encoder.conv1.weight'] = weight1
-        dic['encoder.conv1.bias'] = bias1
-
-        alpha = torch.sigmoid(torch.mul(x2.mean(0).T, self.gating_weight2))
-        gamma = torch.mul(alpha, gamma2) + torch.mul(1 - alpha, torch.ones_like(gamma2))
-        beta = torch.mul(alpha, beta2) + torch.mul(1 - alpha, torch.ones_like(beta2))
-
-        weight2 = torch.mul(self.conv2.weight, gamma)
-        bias2 = self.conv2.bias
-
-
-        dic['encoder.conv2.weight'] = weight2
-        dic['encoder.conv2.bias'] = bias2
-
-        return dic
-
-
-
-'''
-
-
-
-class LampSignatureEncoder3(torch.nn.Module):  #先考虑合并起来的情况
-    def __init__(self, args, in_channels, out_channels):
-        super(LampSignatureEncoder3, self).__init__()
-        self.args = args
-        self.conv1 = MetaGCNConv(in_channels, 2 * out_channels,  cached=False)
-        self.conv2 = MetaGCNConv(2 * out_channels, out_channels,  cached=False)
-
-        self.signature = GraphSignature(args, in_channels, out_channels)
-        self.gating_weight1 = Parameter(torch.Tensor( 2 * out_channels, 2 * out_channels))
-        self.gating_weight2 = Parameter(torch.Tensor(out_channels, out_channels))
-
-        glorot(self.gating_weight1)
-        glorot(self.gating_weight2)
-
-
-
-
-    def forward(self, x, edge_index, weights):
-        x = F.relu(self.conv1(x, edge_index, \
-                weights['encoder.conv1.weight'],weights['encoder.conv1.bias']))
-        return self.conv2(x, edge_index,\
-                weights['encoder.conv2.weight'],weights['encoder.conv2.bias'])
-
-
-
-
-    def modulate(self, x, edge_index, weights,classes = None):
-
-        dic = OrderedDict()
-
-
-        keys = list(weights.keys())
-        sig_keys = [key for key in keys if 'signature' in key]
-        gamma1, beta1, gamma2, beta2 = self.signature(x, edge_index, weights, sig_keys,classes)
-
-        x1 = self.conv1(x, edge_index, weights['encoder.conv1.weight'],weights['encoder.conv1.bias'])
-        x2 = self.conv2(F.relu(x1), edge_index, weights['encoder.conv2.weight'],weights['encoder.conv2.bias'])
-
-        alpha = torch.sigmoid(torch.matmul(x1, self.gating_weight1).mean(0))
-        gamma = torch.mul(alpha, gamma1) + torch.mul(1 - alpha, torch.ones_like(gamma1))
-        beta = torch.mul(alpha, beta1) + torch.mul(1 - alpha, torch.ones_like(beta1))
-
-        weight1 = torch.mul(self.conv1.weight, gamma)
-        bias1 = torch.mul(self.conv1.bias, beta)
-
-        dic['encoder.conv1.weight'] = weight1
-        dic['encoder.conv1.bias'] = bias1
-
-        alpha = torch.sigmoid(torch.matmul(x2, self.gating_weight2).mean(0))
-        gamma = torch.mul(alpha, gamma2) + torch.mul(1 - alpha, torch.ones_like(gamma2))
-        beta = torch.mul(alpha, beta2) + torch.mul(1 - alpha, torch.ones_like(beta2))
-
-        weight2 = torch.mul(self.conv2.weight, gamma)
-        bias2 = torch.mul(self.conv2.bias, beta)
-
-
-        dic['encoder.conv2.weight'] = weight2
-        dic['encoder.conv2.bias'] = bias2
-
-        return dic
- '''    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        
-
-
-
-
-    
-
-        
-
-
-
-
-
-
-
-
-class LampSignatureEncoder(torch.nn.Module):  #先考虑合并起来的情况
-    def __init__(self, args, in_channels, out_channels):
-        super(LampSignatureEncoder, self).__init__()
-        self.args = args
-        self.conv1 = MetaGatedGCNConv(in_channels, 2 * out_channels, gating=args.gating, cached=False)
-        if args.model in ['GAE']:
-            self.conv2 = MetaGatedGCNConv(2 * out_channels, out_channels, gating=args.gating, cached=False)
-        elif args.model in ['VGAE']:
-            self.conv_mu = MetaGatedGCNConv(2 * out_channels, out_channels, gating=args.gating, cached=False)
-            self.conv_logvar = MetaGatedGCNConv(
-                2 * out_channels, out_channels, gating=args.gating, cached=False)
-        # in_channels is the input feature dim
-        self.signature = LampGraphSignature(args, in_channels, out_channels)
-
-    def forward(self, x, edge_index, weights, inner_loop=True):
-        keys = list(weights.keys())
-        sig_keys = [key for key in keys if 'signature' in key]
-        if inner_loop:
-            with torch.no_grad():
-                sig_gamma_1, sig_beta_1, sig_gamma_2, sig_beta_2 = self.signature(x, edge_index, weights, sig_keys)
-                self.cache_sig_out = [sig_gamma_1,sig_beta_1,sig_gamma_2,sig_beta_2,\
-                                      torch.sigmoid(weights['encoder.conv1.gating_weights']),\
-                                      torch.sigmoid(weights['encoder.conv2.gating_weights'])]
-        else:
-            sig_gamma_1, sig_beta_1, sig_gamma_2, sig_beta_2 = self.signature(x, edge_index, weights, sig_keys)
-
-
-        x = F.relu(self.conv1(x, edge_index, \
-                              weights['encoder.conv1.weight_1'], \
-                              weights['encoder.conv1.weight_2'], \
-                              weights['encoder.conv1.bias'], \
-                              weights['encoder.conv1.gating_weights'], \
-                              gamma=sig_gamma_1, beta=sig_beta_1))
-        if self.args.layer_norm:
-            x = nn.LayerNorm(x.size()[1:], elementwise_affine=False)(x)
-        if self.args.model in ['GAE']:
-            x = self.conv2(x, edge_index, \
-                           weights['encoder.conv2.weight_1'], \
-                           weights['encoder.conv2.weight_2'], \
-                           weights['encoder.conv2.bias'], \
-                           weights['encoder.conv2.gating_weights'], \
-                           gamma=sig_gamma_2, beta=sig_beta_2)
-            if self.args.layer_norm:
-                x = nn.LayerNorm(x.size()[1:], elementwise_affine=False)(x)
-            return x
-        elif self.args.model in ['VGAE']:
-            mu = self.conv_mu(x, edge_index, \
-                              weights['encoder.conv_mu.weight_1'], \
-                              weights['encoder.conv_mu.weight_2'], \
-                              weights['encoder.conv_mu.bias'], \
-                              weights['encoder.conv_mu.gating_weights'], \
-                              gamma=sig_gamma_2, beta=sig_beta_2)
-            sig = self.conv_logvar(x, edge_index, \
-                                   weights['encoder.conv_logvar.weight_1'], \
-                                   weights['encoder.conv_logvar.weight_2'], \
-                                   weights['encoder.conv_logvar.bias'], \
-                                   weights['encoder.conv_logvar.gating_weights'], \
-                                   gamma=sig_gamma_2, beta=sig_beta_2)
-            if self.args.layer_norm:
-                mu = nn.LayerNorm(mu.size()[1:], elementwise_affine=False)(mu)
-                sig = nn.LayerNorm(sig.size()[1:], elementwise_affine=False)(sig)
-            return mu, sig
-
-
-class LampSignatureEncoder2(torch.nn.Module):  #先考虑合并起来的情况
-    def __init__(self, args, in_channels, out_channels):
-        super(LampSignatureEncoder2, self).__init__()
-        self.args = args
-        self.conv1 = LampGCNConv(in_channels, 2 * out_channels, gating=args.gating, cached=False)
-        if args.model in ['GAE']:
-            self.conv2 = LampGCNConv(2 * out_channels, out_channels, gating=args.gating, cached=False)
-        elif args.model in ['VGAE']:
-            self.conv_mu = LampGCNConv(2 * out_channels, out_channels, gating=args.gating, cached=False)
-            self.conv_logvar = LampGCNConv(
-                2 * out_channels, out_channels, gating=args.gating, cached=False)
-        # in_channels is the input feature dim
-        self.signature = LampGraphSignature(args, in_channels, out_channels)
-
-    
-    def forward(self, x, edge_index, weights, inner_loop=True, parameters = False):
-        keys = list(weights.keys())
-        sig_keys = [key for key in keys if 'signature' in key]
-        if inner_loop:
-            with torch.no_grad():
-                sig_gamma_1, sig_beta_1, sig_gamma_2, sig_beta_2 = self.signature(x, edge_index, weights, sig_keys)
-                self.cache_sig_out = [sig_gamma_1,sig_beta_1,sig_gamma_2,sig_beta_2,\
-                                      torch.sigmoid(weights['encoder.conv1.gating_weights']),\
-                                      torch.sigmoid(weights['encoder.conv2.gating_weights'])]
-        else:
-            sig_gamma_1, sig_beta_1, sig_gamma_2, sig_beta_2 = self.signature(x, edge_index, weights, sig_keys)
-
-
-        x = F.relu(self.conv1(x, edge_index, \
-                              weights['encoder.conv1.weight_1'], \
-                              weights['encoder.conv1.weight_2'], \
-                              weights['encoder.conv1.bias'], \
-                              weights['encoder.conv1.gating_weights'], \
-                              gamma=sig_gamma_1, beta=sig_beta_1,parameters = parameters))
-        if self.args.layer_norm:
-            x = nn.LayerNorm(x.size()[1:], elementwise_affine=False)(x)
-        if self.args.model in ['GAE']:
-            x = self.conv2(x, edge_index, \
-                           weights['encoder.conv2.weight_1'], \
-                           weights['encoder.conv2.weight_2'], \
-                           weights['encoder.conv2.bias'], \
-                           weights['encoder.conv2.gating_weights'], \
-                           gamma=sig_gamma_2, beta=sig_beta_2,parameters = parameters)
-            if self.args.layer_norm:
-                x = nn.LayerNorm(x.size()[1:], elementwise_affine=False)(x)
-            return x
-        elif self.args.model in ['VGAE']:
-            mu = self.conv_mu(x, edge_index, \
-                              weights['encoder.conv_mu.weight_1'], \
-                              weights['encoder.conv_mu.weight_2'], \
-                              weights['encoder.conv_mu.bias'], \
-                              weights['encoder.conv_mu.gating_weights'], \
-                              gamma=sig_gamma_2, beta=sig_beta_2,parameters = parameters)
-            sig = self.conv_logvar(x, edge_index, \
-                                   weights['encoder.conv_logvar.weight_1'], \
-                                   weights['encoder.conv_logvar.weight_2'], \
-                                   weights['encoder.conv_logvar.bias'], \
-                                   weights['encoder.conv_logvar.gating_weights'], \
-                                   gamma=sig_gamma_2, beta=sig_beta_2,parameters = parameters)
-            if self.args.layer_norm:
-                mu = nn.LayerNorm(mu.size()[1:], elementwise_affine=False)(mu)
-                sig = nn.LayerNorm(sig.size()[1:], elementwise_affine=False)(sig)
-            return mu, sig
-
-
-
-
-class MetaGatedSignatureEncoder(torch.nn.Module):
-    def __init__(self, args, in_channels, out_channels):
-        super(MetaGatedSignatureEncoder, self).__init__()
-        self.args = args
-        self.conv1 = MetaGatedGCNConv(in_channels, 2 * out_channels, gating=args.gating, cached=False)
-        if args.model in ['GAE']:
-            self.conv2 = MetaGatedGCNConv(2 * out_channels, out_channels, gating=args.gating, cached=False)
-        elif args.model in ['VGAE']:
-            self.conv_mu = MetaGatedGCNConv(2 * out_channels, out_channels, gating=args.gating, cached=False)
-            self.conv_logvar = MetaGatedGCNConv(
-                2 * out_channels, out_channels, gating=args.gating, cached=False)
-        # in_channels is the input feature dim
-        self.signature = GraphSignature(args, in_channels, out_channels)
-        #self.cache_sig_out = None
-
-    def forward(self, x, edge_index, weights, inner_loop=True):
-        keys = list(weights.keys())
-        sig_keys = [key for key in keys if 'signature' in key]
-        if inner_loop:
-            with torch.no_grad():
-                sig_gamma_1, sig_beta_1, sig_gamma_2, sig_beta_2 = self.signature(x, edge_index, weights, sig_keys)
-                self.cache_sig_out = [sig_gamma_1,sig_beta_1,sig_gamma_2,sig_beta_2,\
-                                      torch.sigmoid(weights['encoder.conv1.gating_weights']),\
-                                      torch.sigmoid(weights['encoder.conv2.gating_weights'])]
-        else:
-            sig_gamma_1, sig_beta_1, sig_gamma_2, sig_beta_2 = self.signature(x, edge_index, weights, sig_keys)
-
-        x = F.relu(self.conv1(x, edge_index,\
-                weights['encoder.conv1.weight_1'],\
-                weights['encoder.conv1.weight_2'],\
-                weights['encoder.conv1.bias'],\
-                weights['encoder.conv1.gating_weights'],\
-                gamma=sig_gamma_1, beta=sig_beta_1))
-        if self.args.layer_norm:
-            x = nn.LayerNorm(x.size()[1:], elementwise_affine=False)(x)
-        if self.args.model in ['GAE']:
-            x =  self.conv2(x, edge_index,\
-                    weights['encoder.conv2.weight_1'],\
-                    weights['encoder.conv2.weight_2'],\
-                    weights['encoder.conv2.bias'],\
-                    weights['encoder.conv2.gating_weights'],\
-                    gamma=sig_gamma_2, beta=sig_beta_2)
-            if self.args.layer_norm:
-                x = nn.LayerNorm(x.size()[1:], elementwise_affine=False)(x)
-            return x
-        elif self.args.model in ['VGAE']:
-            mu = self.conv_mu(x,edge_index,\
-                    weights['encoder.conv_mu.weight_1'],\
-                    weights['encoder.conv_mu.weight_2'],\
-                    weights['encoder.conv_mu.bias'],\
-                    weights['encoder.conv_mu.gating_weights'],\
-                    gamma=sig_gamma_2, beta=sig_beta_2)
-            sig = self.conv_logvar(x,edge_index,\
-                    weights['encoder.conv_logvar.weight_1'],\
-                    weights['encoder.conv_logvar.weight_2'],\
-                    weights['encoder.conv_logvar.bias'],\
-                    weights['encoder.conv_logvar.gating_weights'],\
-                    gamma=sig_gamma_2, beta=sig_beta_2)
-            if self.args.layer_norm:
-                mu = nn.LayerNorm(mu.size()[1:], elementwise_affine=False)(mu)
-                sig = nn.LayerNorm(sig.size()[1:], elementwise_affine=False)(sig)
-            return mu, sig
-
-
-class TransEncoder(torch.nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(TransEncoder, self).__init__()
-        self.conv1 = TransformerConv(in_channels, out_channels)
-        self.conv2 = TransformerConv(out_channels, out_channels)
-
-
-    def forward(self, x, edge_index):
-        x = F.relu(self.conv1(x, edge_index))
-        return self.conv2(x, edge_index)
-
-
-class MetaEncoder(torch.nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(MetaEncoder, self).__init__()
-        self.conv1 = SAGEConv(in_channels, out_channels)
-        self.conv2 = SAGEConv(out_channels, out_channels)
-
-
-    def forward(self, x, edge_index):
-        x = F.relu(self.conv1(x, edge_index))
-        return self.conv2(x, edge_index)
 
 
 
@@ -938,29 +121,6 @@ class TransformerEncoder_original(torch.nn.Module):
 
 
 
-class MetaEncoder2(torch.nn.Module):
-    def __init__(self, args, in_channels, out_channels):
-        super(MetaEncoder, self).__init__()
-        self.args = args
-        self.conv1 = MetaGCNConv(in_channels, 2 * out_channels, cached=False)
-        if args.model in ['GAE']:
-            self.conv2 = MetaGCNConv(2 * out_channels, out_channels, cached=False)
-        elif args.model in ['VGAE']:
-            self.conv_mu = MetaGCNConv(2 * out_channels, out_channels, cached=False)
-            self.conv_logvar = MetaGCNConv(
-                2 * out_channels, out_channels, cached=False)
-
-    def forward(self, x, edge_index, weights, inner_loop=True):
-        x = F.relu(self.conv1(x, edge_index, \
-                weights['encoder.conv1.weight'],weights['encoder.conv1.bias']))
-        if self.args.model in ['GAE']:
-            return self.conv2(x, edge_index,\
-                    weights['encoder.conv2.weight'],weights['encoder.conv2.bias'])
-        elif self.args.model in ['VGAE']:
-            return self.conv_mu(x,edge_index,weights['encoder.conv_mu.weight'],\
-                    weights['encoder.conv_mu.bias']),\
-                self.conv_logvar(x,edge_index,weights['encoder.conv_logvar.weight'],\
-                weights['encoder.conv_logvar.bias'])
 
 
 
@@ -1421,11 +581,14 @@ class ConnectMatch_mlp(torch.nn.Module):
 
 
 class ConnectMatch(torch.nn.Module):
-    def __init__(self,node_dim,proto_num=256):
+    def __init__(self,args,node_dim,proto_num=256):
         super(ConnectMatch, self).__init__()
         self.node_dim =node_dim
         self.proto_num = proto_num
-
+        self.modal_encoder = nn.ModuleDict()
+        for modal in args.modal_names:
+            self.modal_encoder[modal] = MLP(node_dim, args.hidden_dims, args.share_dims)
+        self.modal_encoder['virtual'] = MLP(node_dim, args.hidden_dims, args.share_dims)
 
         self.super_nodes = torch.nn.Parameter(torch.randn(self.proto_num,self.node_dim,dtype=torch.float))
         self.reset_parameters()
@@ -1451,12 +614,13 @@ class ConnectMatch(torch.nn.Module):
             adj[graph.edge_index[0]+cum,graph.edge_index[1]+cum] = 1.0
             cum+=graph.x.shape[0]
 
-        features = torch.cat([graphs[name].x for name in graphs.keys()],dim = 0)
+        features = torch.cat([self.modal_encoder[name](graphs[name].x.detach()) for name in graphs.keys()],dim = 0)
+        super_nodes = self.modal_encoder['virtual'](self.super_nodes)
         adj = adj.to(features)
-        print(self.super_nodes.dtype,features.dtype)
-        down = F.sigmoid(self.super_nodes@features.t())
-        features = torch.cat([features,self.super_nodes],dim=0)
-        right = F.sigmoid(features@self.super_nodes.t())
+        print(super_nodes.dtype,features.dtype)
+        down = F.sigmoid(super_nodes@features.t())
+        features = torch.cat([features,super_nodes],dim=0)
+        right = F.sigmoid(features@super_nodes.t())
 
         adj = torch.cat([adj,down],dim=0)
         adj = torch.cat([adj,right],dim=1)
@@ -1479,7 +643,44 @@ class ConnectMatch(torch.nn.Module):
         return adj.nonzero().t().detach()
 
 
-    
+    def get_test_relation(self,graph,xs,threshold,task):
+        node_num = xs['text'].x.shape[0]
+
+        remain_lists={'text':graph.text_list,'vision':graph.vision_list,'structure':graph.structure_list}
+
+        cum = 0
+        tmp = np.sum([xs[key].shape[0] for key in xs.keys()])+self.proto_num
+        adj = torch.tensor(np.zeros((tmp,tmp)))
+        for key in xs.keys():
+            if task == 'link':
+                adj[graph.train_edge_index[0]+cum,graph.train_edge_index[1]+cum] = 1.0
+            else:adj[graph.edge_index[0]+cum,graph.edge_index[1]+cum] = 1.0
+            cum+=xs[key].shape[0]
+
+        features = torch.cat([self.modal_encoder[name]( xs[name][remain_lists[name]]) for name in xs.keys()],dim = 0)
+        super_nodes = self.modal_encoder['virtual'](self.super_nodes)
+        down_index = torch.where(F.sigmoid(super_nodes@features.t())>threshold,1,0).nonzero().t()
+
+        all_list = graph.text_list + [i + node_num for i in graph.vision_list] + [i + node_num * 2 for i in graph.structure_list]
+
+        adj[down_index[0]+cum,down_index[1][all_list]] =1
+        adj[down_index[1][all_list],down_index[0]+cum] =1
+        hub_index = torch.where(F.sigmoid(super_nodes@super_nodes.t())>threshold,1,0).nonzero().t()
+        adj[hub_index[0]+cum,hub_index[1]+cum] =1
+
+        return adj.nonzero().t().detach()
+
+        
+
+
+
+        
+
+
+
+
+
+
 
 
 
@@ -1880,7 +1081,7 @@ class TransformerConv(MessagePassing):
         query = self.lin_query(x).view(-1, self.heads * self.out_channels)
         key = self.lin_key(x).view(-1, self.heads * self.out_channels)
 
-        alpha = ( key@query.t() ) / math.sqrt(self.out_channels) #这里有问题 模型怎么把edge_weight加进去
+        alpha = ( key@query.t() ) / math.sqrt(self.out_channels) 
         #print('alpha',alpha)
 
         alpha = F.softmax(alpha,dim=0)
@@ -1969,29 +1170,6 @@ class TransformerConv(MessagePassing):
 
 
 
-
-        
-
-class MetaEncoderGP(torch.nn.Module):
-    def __init__(self, args, in_channels, out_channels):
-        super(MetaEncoderGP, self).__init__()
-        self.args = args
-        self.conv1 = TransformerConv(in_channels, 2 * out_channels)
-        self.conv2 = TransformerConv(2 * out_channels, out_channels)
-
-
-    def forward(self, x, edge_index, weights, inner_loop=True):
-        x1 = F.relu(self.conv1(x, edge_index))
-        x2=self.conv2(x1, edge_index)
-
-        return torch.cat((x1,x2),dim = 1) 
-
-
-        
-
-
-
-
 class ALLEncoder(torch.nn.Module):
     def __init__(self, args, in_channels, out_channels,model):
         super(ALLEncoder, self).__init__()
@@ -2008,9 +1186,7 @@ class ALLEncoder(torch.nn.Module):
         elif model == 'SAGE':
             self.conv1 = SAGEConv(in_channels, 2*out_channels)
             self.conv2 = SAGEConv(2*out_channels, out_channels)
-        elif model == 'GIN':
-            self.conv1 = MetaGINConv(in_channels, 2*out_channels)
-            self.conv2 = MetaGINConv(2*out_channels, out_channels)
+
             
 
 

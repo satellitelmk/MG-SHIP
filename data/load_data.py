@@ -29,7 +29,7 @@ def negative_sampling_identify(pos_edge_index, num_nodes):
     idx = (pos_edge_index[0] * num_nodes + pos_edge_index[1]) 
     idx = idx.to(torch.device('cpu'))
 
-    rng =  [i * num_nodes+j for i in range(num_nodes) for j in range(num_nodes) if i<j ]  #range(num_nodes**2)
+    rng =  [i * num_nodes+j for i in range(num_nodes) for j in range(num_nodes) if i<j ]  
     perm = torch.tensor(fetch(rng, idx.size(0)))
     mask = torch.from_numpy(np.isin(perm, idx).astype(np.uint8))
     rest = mask.nonzero(as_tuple = False).view(-1)
@@ -124,7 +124,7 @@ class test_graph:
 
 
     def get_sub_edge_index(self,edge_index, list_sample, relabel_nodes=True):
-        
+
         if not torch.is_tensor(list_sample):
             list_sample = torch.tensor(list_sample, dtype=torch.long)
 
@@ -213,24 +213,25 @@ class test_graph:
 
 
     def complete_modalities_graph(self,text_feats, vision_feats, structure_feats):
-        
+
         N, d = text_feats.shape
 
         text_list, vision_list, structure_list = self.text_list,self.vision_list,self.structure_list
 
-
+   
         mask = torch.zeros((N, 3), dtype=torch.float32, device=text_feats.device)
         mask[text_list, 0] = 1
         mask[vision_list, 1] = 1
         mask[structure_list, 2] = 1
 
-
+ 
         feats = torch.stack([text_feats, vision_feats, structure_feats], dim=1)
 
-        sum_feats = feats * mask.unsqueeze(-1)          
+
+        sum_feats = feats * mask.unsqueeze(-1)         
         sum_feats = sum_feats.sum(dim=1, keepdim=True)  
 
-
+ 
         count = mask.sum(dim=1, keepdim=True).clamp(min=1).unsqueeze(-1)
 
 
@@ -266,7 +267,7 @@ class test_graph:
             has_structure = i in structure_set
 
             if has_text + has_vision + has_structure == 1:
-                
+
                 if has_text:
                     visions.append(convert_text[i])
                     structures.append(convert_text[i])
@@ -281,7 +282,7 @@ class test_graph:
                     structures.append(convert_structure[i])
             
             elif has_text + has_vision + has_structure == 2:
-                
+
                 if not has_text:
                     texts.append((convert_vision[i] + convert_structure[i]) / 2)
                     visions.append(convert_vision[i])
@@ -307,7 +308,7 @@ class test_graph:
 
 
     def multimodal_to_flat_graph(self,task ):
-        
+
         
         device = self.edge_index.device
         edge_index = self.edge_index
@@ -357,6 +358,7 @@ class test_graph:
         feats = torch.stack(feats, dim=0).to(device)
 
         edge_set = set()
+
 
         for i in range(N):
             mods = node2modalities[i]
@@ -428,7 +430,6 @@ class test_graph:
                         train_edges.append((u, v))
                         train_edges.append((v, u))
             extra_info["train_edge_index"] = torch.LongTensor(train_edges).t().contiguous().to(device)
-
 
             def edge_map(edge_index,device):
                 res = [[],[]]
@@ -502,7 +503,7 @@ class test_graph:
 
         N = self.text_feat.shape[0]
         r = modal_ratio
-        M = math.ceil(r * N)  
+        M = math.ceil(r * N) 
 
         modal1 = set()
         modal2 = set()

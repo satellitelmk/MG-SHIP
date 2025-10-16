@@ -81,8 +81,6 @@ def train_graph_isolate(MLPs,model, graph,optimizer,dims,device,file=None):
 
     for epoch in range(1,1500):
 
-        # if epoch == 100:
-        #     for modal in graph.modal_names:MLPs[modal].Dropout.p = 0.6
 
         model.train()
         for modal in graph.modal_names: MLPs[modal].train()
@@ -100,8 +98,7 @@ def train_graph_isolate(MLPs,model, graph,optimizer,dims,device,file=None):
             x_text = model.encode(xs['text'], graph.train_edge_index, weights, inner_loop=True)
             x_vision = model.encode(xs['vision'], graph.train_edge_index, weights, inner_loop=True)
             x_structure = model.encode(xs['structure'], graph.train_edge_index, weights, inner_loop=True)
-            # acc = compute_acc_unsupervised_isolate('link',x_text,x_vision,x_structure,test_index_positive=graph.test_edge_index,test_index_negative =graph.test_edge_index_negative  )
-            # print(acc,'rrrrrrr')
+
             
         else:
             x_text = model.encode(xs['text'], graph.edge_index, weights, inner_loop=True)
@@ -148,7 +145,7 @@ def train_graph_isolate(MLPs,model, graph,optimizer,dims,device,file=None):
 
             if model.task == 'link':score = model.test_isolate(x_text,x_vision,x_structure,graph.test_edge_index,graph.test_edge_index_negative )[0]
             else: 
-                #score = model.class_test_isolate2(x_text[graph.test_labels],x_vision[graph.test_labels],x_vision[graph.test_labels],graph.labels[graph.test_labels])      ############# here pay attention  x_structure=x_vision
+
                 score = model.class_test_isolate(x_text[graph.test_labels],x_vision[graph.test_labels],x_structure[graph.test_labels],graph.labels[graph.test_labels])
 
 
@@ -168,6 +165,97 @@ def train_graph_isolate(MLPs,model, graph,optimizer,dims,device,file=None):
 
 
 
+
+def train_graph_final(MLPs,model, graph,optimizer,dims,device,file=None):
+
+    for modal in graph.modal_names: MLPs[modal].to(device)
+        
+
+    value = 0
+    count = 0
+    best = 0
+ 
+
+    for epoch in range(1,1500):
+
+
+        model.train()
+        for modal in graph.modal_names: MLPs[modal].train()
+        
+        weights = OrderedDict(model.named_parameters())
+
+        xs = []
+        for modal in graph.modal_names:
+            modal_feat = MLPs[modal](graph.original_feats[modal])
+            modal_dim = int(np.sum(dims[:graph.modal_names.index(modal)]))
+            xs.append(torch.cat([modal_feat[:,:modal_dim],graph.original_feats[modal],modal_feat[:,modal_dim:]],dim=1))
+
+        xs = graph.complete_modalities_graph(xs[0],xs[1],xs[2])
+        xs = torch.cat(xs['text'],xs['vision'],xs['structure'],graph.anchor_nodes,dim = 0)
+        embedding = model.encode(xs, graph.enrich_adj, weights)
+        num = graph.original_feats['text'].shape[0]
+        x_text = embedding[:num,:]
+        x_vision = embedding[num:num*2,:]
+        x_structure = embedding[num*2:num*3,:]
+
+        if model.task == 'link':
+            loss = model.recon_loss_isolate(x_text,x_vision,x_structure,graph.train_edge_index)
+        else:
+            loss = model.class_loss_isolate(x_text[graph.train_labels],x_vision[graph.train_labels],x_structure[graph.train_labels], graph.labels[graph.train_labels])
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        for p in model.parameters():
+            p.data.clamp_(-0.1, 0.1)
+
+        model.eval()
+        for modal in graph.modal_names: MLPs[modal].eval()
+
+
+
+
+        with torch.no_grad():
+            weights = OrderedDict(model.named_parameters())
+            xs = []
+            for modal in graph.modal_names:
+                modal_feat = MLPs[modal](graph.original_feats[modal])
+                modal_dim = int(np.sum(dims[:graph.modal_names.index(modal)]))
+                xs.append(torch.cat([modal_feat[:,:modal_dim],graph.original_feats[modal],modal_feat[:,modal_dim:]],dim=1))
+
+            xs = graph.complete_modalities_graph(xs[0],xs[1],xs[2])
+            xs = torch.cat(xs['text'],xs['vision'],xs['structure'],graph.anchor_nodes,dim = 0)
+            embedding = model.encode(xs, graph.enrich_adj, weights)
+            num = graph.original_feats['text'].shape[0]
+            x_text = embedding[:num,:]
+            x_vision = embedding[num:num*2,:]
+            x_structure = embedding[num*2:num*3,:]
+
+
+            if model.task == 'link':score = model.test_isolate(x_text,x_vision,x_structure,graph.val_edge_index,graph.val_edge_index_negative )[0]
+            else: 
+                score = model.class_test_isolate(x_text[graph.val_labels],x_vision[graph.val_labels],x_structure[graph.val_labels],graph.labels[graph.val_labels])[0]
+
+            if model.task == 'link':test_score = model.test_isolate(x_text,x_vision,x_structure,graph.test_edge_index,graph.test_edge_index_negative )[0]
+            else: 
+                test_score = model.class_test_isolate(x_text[graph.test_labels],x_vision[graph.test_labels],x_structure[graph.test_labels],graph.labels[graph.test_labels])[0]
+
+
+
+        if epoch in [0,2,4,6,8,10,20,50,100,150,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400]:print(epoch,value,loss.item())
+        
+        #if epoch<=500:print(epoch,score,loss.item())
+        if file!=None:file.write('{},{},{},{}\n'.format(epoch,count,score))
+        if value<score:
+            value = score
+            best = test_score
+            count = 0
+        else:count+=1
+
+    if file!=None:file.write('the best value:,{}\n'.format(value))
+    print('the best value: ', value)
+    return best
 
 
 
@@ -282,18 +370,16 @@ def train_graph(MLPs,model, graph,optimizer,dims,device,file=None):
 
 
 
-def fused_split_new(fused_graph,graphs,task):
+def enrich_graph_split(fused_graph,graphs,task):
 
-    #fused_graph.x = torch.cat([graphs[name].x for name in graphs.keys()]+[fused_graph.super_nodes],dim =0).detach()  #这个detach()要放在前面，以后再说
-    print(' graphs.keys(),', graphs.keys())
-    fused_graph.x = torch.cat([graphs[name].x.detach() for name in graphs.keys()]+[fused_graph.super_nodes],dim =0)  #这个detach()要放在前面，以后再说
-
+    
+    
 
     if task == 'edge':
         cum = 0
         test_index = []
 
-        for key in graphs.keys():  #### adj的排序是.keys()
+        for key in graphs.keys():  
             graph = graphs[key]
             
             graph.link_split(0.2, 0.2)
@@ -373,339 +459,195 @@ def fused_split_new(fused_graph,graphs,task):
 
 
 
-def lambda_for_adj_new(args, task, base_model, base_auxiliary,graphs,match_graph,device):
+def get_meta_loss(args, task, base_model, base_auxiliary,enrich_graph,graphs,device):
 
-   
-    optimizer= torch.optim.Adam(match_graph.parameters(), lr=0.001,weight_decay=5e-4) ############0.005  dgi:0.0005
+    base_model = deepcopy(base_model).reset_parameters()
+    if base_auxiliary: base_auxiliary = deepcopy(base_auxiliary).reset_parameters()
+
+    model = get_inner_model(args, task, base_model, base_auxiliary,enrich_graph,graphs)
+
+    losses = []
+
+    for index,key in enumerate(graphs.keys()):
+
+        graph = graphs[key]
+        weights = OrderedDict(model[0].named_parameters())
+        if task == 'edge':
+            z_val2 = model[0].encode(graph.x.detach(), graph.train_edge_index, weights)
+            loss = model[0].recon_loss(z_val2, graph.test_edge_index)
+            #original_test = torch.cat(fused_graph.test_index,dim=1)
+
+        elif task == 'sim':
+            vice_model = gen_ran_output(model[0])
+
+            output_positive = model[0].encode(graph.x.detach(), graph.edge_index, weights)
+            output_negative = vice_model.encode(graph.x.detach(), graph.edge_index, weights)
+
+            loss = loss_cal2(output_positive,output_negative,model[1])
 
 
+
+
+        elif task == 'nmk':
+
+            
+
+            
+            z_val = model[0].encode(graph.xx.detach(), graph.edge_index, weights)
+            z_val2 = model[1](z_val)
+            loss = torch.nn.MSELoss()(z_val2[graph.mask,int(np.sum(args.dims[:index])):int(np.sum(args.dims[:index]))+args.dims[index]], 
+                                    graph.x.detach()[graph.mask,int(np.sum(args.dims[:index])):int(np.sum(args.dims[:index]))+args.dims[index]])
+
+        else:
+
+
+
+            output_positive = model[0].encode(graph.x.detach(), graph.edge_index, weights)
+            arr = torch.arange(graph.x.shape[0]) + 1
+            arr[-1:] = torch.arange(1)
+            output_negative = model[0].encode(graph.x[arr].detach(), graph.edge_index, weights)
+            summary_emb = torch.sigmoid(torch.mean(output_positive, dim=0, keepdim=True))
+            discriminator_summary = model[1](summary_emb).T
+            positive_score = output_positive @ discriminator_summary
+            negative_score = output_negative @ discriminator_summary
+            loss = torch.nn.BCEWithLogitsLoss()(positive_score,
+                                            torch.ones_like(positive_score)) + torch.nn.BCEWithLogitsLoss()(
+            negative_score, torch.zeros_like(negative_score))
+
+
+        losses.append(loss)
+
+    return losses
+
+
+
+
+
+def get_inner_model(args, task, base_model, base_auxiliary, enrich_graph,graphs):
     
 
-    for loop in range(5): #20      #edge:5
-        
-
-        adj = match_graph(graphs)
-
-        fused_graph = Graph(None,None)
-        fused_graph.adj = adj
-        fused_graph.super_nodes = match_graph.super_nodes
-        fused_graph,graphs = fused_split_new(fused_graph,graphs,task)
-
-        print(fused_graph.adj_tensor.sum(),fused_graph.adj_tensor)
-
-        models = lambda_training_new(args, task, base_model, base_auxiliary, fused_graph,graphs,device)
-
-  
-        cum = 0
+    model = deepcopy(base_model),deepcopy(base_auxiliary)
+    
+    for epoch in range(5): #20
         loss = 0
-        for index,key in enumerate(graphs.keys()):
-            model=models[index]
-            graph = graphs[key]
+        cum = 0
+        for index,key in enumerate(args.modal_names):
+            graph= graphs[key]
+            
+
             weights = OrderedDict(model[0].named_parameters())
+
             if task == 'edge':
-                z_val1 = model[0].encode(x = fused_graph.x, edge_index = None,
-                                           weights = weights, edge_weight = fused_graph.adj_tensor)
+                z_val1 = model[0].encode(x = enrich_graph.x, edge_index = None,
+                                           weights = weights, edge_weight = enrich_graph.adj_tensor.detach())
 
-                loss1 = model[0].recon_loss(z_val1, fused_graph.test_index[index])
-
-                z_val2 = model[0].encode(graph.x.detach(), graph.train_edge_index, weights)
-                loss2 = model[0].recon_loss(z_val2, graph.test_edge_index)
-                #original_test = torch.cat(fused_graph.test_index,dim=1)
+                loss+= model[0].recon_loss(z_val1, enrich_graph.test_index[index])
 
             elif task == 'sim':
+
+
+                
                 vice_model = gen_ran_output(model[0])
 
-                embedding = fused_graph.x
-                output_positive = model[0].encode(x = embedding, edge_index = None,weights = weights, edge_weight = fused_graph.adj_tensor)
+                embedding = enrich_graph.x
+                output_positive = model[0].encode(x = embedding, edge_index = None,weights = weights, edge_weight = enrich_graph.adj_tensor.detach())
                 #output_positive = output_positive[cum:cum+graph.x.shape[0],:]
 
-                output_negative = vice_model.encode(x = embedding, edge_index = None,weights = weights, edge_weight = fused_graph.adj_tensor)
+                output_negative = vice_model.encode(x = embedding, edge_index = None,weights = weights, edge_weight = enrich_graph.adj_tensor.detach())
                 #output_negative = output_negative[cum:cum+graph.x.shape[0],:]
 
-                loss1 = loss_cal2(output_positive,output_negative,model[1])
+                loss+= loss_cal2(output_positive,output_negative,model[1])
 
-
-                output_positive = model[0].encode(graph.x, graph.edge_index, weights)
-                output_negative = vice_model.encode(graph.x, graph.edge_index, weights)
-
-                loss2 = loss_cal2(output_positive,output_negative,model[1])
-
-
-
+                
 
             elif task == 'nmk':
 
-                if 'new_dims' in args:
-                    z_val = model[0].encode(x = fused_graph.xx, edge_index = None,
-                                            weights = weights, edge_weight = fused_graph.adj_tensor)
-                    z_val1 = model[1](z_val)
-                    loss1 = torch.nn.MSELoss()(z_val1[fused_graph.test_index[index],args.old_dims[index][0]:args.old_dims[index][1]], 
-                                            graph.original_x[graph.mask,:])
+
+
+
+                z_val = model[0].encode(x = enrich_graph.xx, edge_index = None,
+                                        weights = weights, edge_weight = enrich_graph.adj_tensor.detach())
+                z_val1 = model[1](z_val)
+                loss += torch.nn.MSELoss()(z_val1[enrich_graph.test_index[index],int(np.sum(args.dims[:index])):int(np.sum(args.dims[:index]))+args.dims[index]], 
+                                        graph.x.detach()[graph.mask,int(np.sum(args.dims[:index])):int(np.sum(args.dims[:index]))+args.dims[index]])
                     
-                    z_val = model[0].encode(graph.xx, graph.edge_index, weights)
-                    z_val2 = model[1](z_val)
-                    loss2 = torch.nn.MSELoss()(z_val2[graph.mask,args.old_dims[index][0]:args.old_dims[index][1]], 
-                                            graph.original_x[graph.mask,:])
-                else:
-                    z_val = model[0].encode(x = fused_graph.xx, edge_index = None,
-                                            weights = weights, edge_weight = fused_graph.adj_tensor)
-                    z_val1 = model[1](z_val)
-                    loss1 = torch.nn.MSELoss()(z_val1[fused_graph.test_index[index],int(np.sum(args.dims[:index])):int(np.sum(args.dims[:index]))+args.dims[index]], 
-                                            graph.x[graph.mask,int(np.sum(args.dims[:index])):int(np.sum(args.dims[:index]))+args.dims[index]])
-                    
-                    z_val = model[0].encode(graph.xx, graph.edge_index, weights)
-                    z_val2 = model[1](z_val)
-                    loss2 = torch.nn.MSELoss()(z_val2[graph.mask,int(np.sum(args.dims[:index])):int(np.sum(args.dims[:index]))+args.dims[index]], 
-                                            graph.x[graph.mask,int(np.sum(args.dims[:index])):int(np.sum(args.dims[:index]))+args.dims[index]])
+
 
             else:
-                embedding = fused_graph.x
-                output_positive = model[0].encode(x = embedding, edge_index = None,weights = weights, edge_weight = fused_graph.adj_tensor)
+                embedding = enrich_graph.x
+                output_positive = model[0].encode(x = embedding, edge_index = None,weights = weights, edge_weight = enrich_graph.adj_tensor.detach())
                 output_positive = output_positive[cum:cum+graph.x.shape[0],:]
-                
+
                 arr = np.arange(embedding.shape[0])
                 arr[cum+graph.x.shape[0]-1]= arr[cum]-1
                 arr[cum:cum+graph.x.shape[0]] = arr[cum:cum+graph.x.shape[0]] +1
+                
 
                 #arr = fused_graph.arr
 
                 embedding = embedding[arr]
 
-                output_negative = model[0].encode(x = embedding, edge_index = None,weights = weights, edge_weight = fused_graph.adj_tensor)
+                output_negative = model[0].encode(x = embedding, edge_index = None,weights = weights, edge_weight = enrich_graph.adj_tensor.detach())
                 output_negative = output_negative[cum:cum+graph.x.shape[0],:]
                 summary_emb = torch.sigmoid(torch.mean(output_positive, dim=0, keepdim=True))
                 discriminator_summary = model[1](summary_emb).T
                 positive_score = output_positive @ discriminator_summary
                 negative_score = output_negative @ discriminator_summary
-                loss1 = torch.nn.BCEWithLogitsLoss()(positive_score,
+                loss += torch.nn.BCEWithLogitsLoss()(positive_score,
                                                 torch.ones_like(positive_score)) + torch.nn.BCEWithLogitsLoss()(
                 negative_score, torch.zeros_like(negative_score))
 
-
-                output_positive = model[0].encode(graph.x, graph.edge_index, weights)
-                arr = torch.arange(graph.x.shape[0]) + 1
-                arr[-1:] = torch.arange(1)
-                output_negative = model[0].encode(graph.x[arr], graph.edge_index, weights)
-                summary_emb = torch.sigmoid(torch.mean(output_positive, dim=0, keepdim=True))
-                discriminator_summary = model[1](summary_emb).T
-                positive_score = output_positive @ discriminator_summary
-                negative_score = output_negative @ discriminator_summary
-                loss2 = torch.nn.BCEWithLogitsLoss()(positive_score,
-                                                torch.ones_like(positive_score)) + torch.nn.BCEWithLogitsLoss()(
-                negative_score, torch.zeros_like(negative_score))
 
             cum+=graph.x.shape[0]
-            loss+=(loss1+loss2)
-        optimizer.zero_grad()
-        loss.backward()
-        print(loss)
-        optimizer.step()
+        
 
+        grads = torch.autograd.grad(
+            loss, 
+            list(base_model.parameters()) + list(base_auxiliary.parameters()),
+            create_graph=True  
+        )
+        
+
+        n_model_params = len(list(base_model.parameters()))
+        grads_model = grads[:n_model_params]
+        grads_aux = grads[n_model_params:]
+        
+
+        with torch.no_grad():
+            for p, g in zip(base_model.parameters(), grads_model):
+                p = torch.clamp((p - args.inner_lr *  g), -0.1, 0.1)
+            for p, g in zip(base_auxiliary.parameters(), grads_aux):
+                p = torch.clamp((p - args.inner_lr *  g), -0.1, 0.1)
+        
+        
+        
+
+    return base_model, base_auxiliary
+
+
+
+
+
+
+def PRIMG_gradient(args, task, pretrain_model, auxiliary, graphs, optimizer,MLPs,wdiscriminator,optimizer_wd,match_graph, epoch, device, file):
+
+    torch.autograd.set_detect_anomaly(True)
+    
 
     adj = match_graph(graphs)
 
-    
-    if task == 'dgi':
-        original_adj = fused_graph.original_adj
-        fused_graph = Graph(fused_graph.x,match_graph.get_final_adj(adj,0.8),True) #0.95
-        fused_graph.original_adj = original_adj
-    # elif task == 'sim':
-    #     edge_index = match_graph.get_final_adj(adj,0.8)
-    #     if (edge_index>fused_graph
+    enrich_graph = Graph(None,None)
+    enrich_graph.adj = adj
+    enrich_graph.super_nodes = match_graph.super_nodes
+    enrich_graph.x = torch.cat([graphs[name].x.detach() for name in args.modal_names]+[match_graph.super_nodes],dim =0) 
 
+    enrich_graph,graphs = enrich_graph_split(enrich_graph,graphs,task)
 
-
-
-    elif task == 'edge':
-        
-        # adj[:adj.shape[0]-match_graph.proto_num,:adj.shape[0]-match_graph.proto_num]=fused_graph.adj_tensor[:adj.shape[0]-match_graph.proto_num,:adj.shape[0]-match_graph.proto_num]
-        # test_index = torch.cat(fused_graph.test_index,1)
-        # fused_graph = Graph(fused_graph.x,match_graph.get_final_adj(adj,0.8),True) #0.95 //0.8
-        # fused_graph.test_edge_index = test_index
-        # fused_graph.train_edge_index = fused_graph.edge_index
-        adj_tensor = fused_graph.adj_tensor
-        test_index = torch.cat(fused_graph.test_index,1)
-        fused_graph = Graph(fused_graph.x,match_graph.get_final_adj(adj,0.7),True) #0.95 //0.8
-        fused_graph.test_edge_index = test_index
-        adj[:adj.shape[0]-match_graph.proto_num,:adj.shape[0]-match_graph.proto_num]=adj_tensor[:adj.shape[0]-match_graph.proto_num,:adj.shape[0]-match_graph.proto_num]
-        fused_graph.train_edge_index = match_graph.get_final_adj(adj,0.7)
-    else:
-        fused_graph = Graph(fused_graph.x,match_graph.get_final_adj(adj,0.8),True) #0.95
-        
-    # print('mmmm1',(adj[-match_graph.proto_num:,:4096]>0.8).sum())
-    # print('mmmm2',(adj[:4096,-match_graph.proto_num:]>0.8).sum())
-    # print('mmmm3',(adj[:4096,:4096]>0.8).sum())
-        
-    fused_graph.num = fused_graph.x.shape[0]-match_graph.proto_num
-    if (fused_graph.edge_index>=fused_graph.num).sum()==0:
-        print('000000')
-        fused_graph.x = fused_graph.x[:fused_graph.num ]
-    return fused_graph
-
-
-
-
-
-def lambda_training_new(args, task, base_model, base_auxiliary, fused_graph,graphs,device):
-    
-    models = []
-    #fused_graph,graphs = fused_split(fused_graph,graphs,task)
-    cum = 0
-    for index,key in enumerate(graphs.keys()):
-        graph = graphs[key]
-        model = deepcopy(base_model),deepcopy(base_auxiliary)
-        model_params = []
-        model_params.extend(model[0].parameters())
-        if model[1] is not None: model_params.extend(model[1].parameters())
-
-
-        #5,5,0.001,0.005 nmk
-        #5,10,0.001,0.001 edge
-        #5,10,0.0001,0.001 sim 0.3
-        #5,10,0.0001,0.001 dgi 
-
-        optimizer= torch.optim.Adam([{'params': model_params}], lr=0.001,weight_decay=5e-4)   ########args.model_lr  dgi:0.001
-        
-        for epoch in range(10): #20
-            model[0].train()
-            if model[1] is not None:model[1].train()
-
-            weights = OrderedDict(model[0].named_parameters())
-
-            if task == 'edge':
-                z_val1 = model[0].encode(x = fused_graph.x, edge_index = None,
-                                           weights = weights, edge_weight = fused_graph.adj_tensor.detach())
-
-                loss1 = model[0].recon_loss(z_val1, fused_graph.test_index[index])
-
-                z_val2 = model[0].encode(graph.x.detach(), graph.train_edge_index, weights)
-                loss2 = model[0].recon_loss(z_val2, graph.test_edge_index)
-
-            elif task == 'sim':
-
-
-                
-                vice_model = gen_ran_output(model[0])
-
-                embedding = fused_graph.x
-                output_positive = model[0].encode(x = embedding, edge_index = None,weights = weights, edge_weight = fused_graph.adj_tensor.detach())
-                #output_positive = output_positive[cum:cum+graph.x.shape[0],:]
-
-                output_negative = vice_model.encode(x = embedding, edge_index = None,weights = weights, edge_weight = fused_graph.adj_tensor.detach())
-                #output_negative = output_negative[cum:cum+graph.x.shape[0],:]
-
-                loss1 = loss_cal2(output_positive,output_negative,model[1])
-
-
-                output_positive = model[0].encode(graph.x, graph.edge_index, weights)
-                output_negative = vice_model.encode(graph.x, graph.edge_index, weights)
-
-                loss2 = loss_cal2(output_positive,output_negative,model[1])
-                
-
-            elif task == 'nmk':
-
-                if 'new_dims' in args:
-                    z_val = model[0].encode(x = fused_graph.xx, edge_index = None,
-                                            weights = weights, edge_weight = fused_graph.adj_tensor.detach())
-                    z_val1 = model[1](z_val)
-                    loss1 = torch.nn.MSELoss()(z_val1[fused_graph.test_index[index],args.old_dims[index][0]:args.old_dims[index][1]], 
-                                            graph.original_x[graph.mask,:])
-                    
-                    z_val = model[0].encode(graph.xx, graph.edge_index, weights)
-                    z_val2 = model[1](z_val)
-                    loss2 = torch.nn.MSELoss()(z_val2[graph.mask,args.old_dims[index][0]:args.old_dims[index][1]], 
-                                            graph.original_x[graph.mask,:])
-
-                
-                else:
-
-
-                    z_val = model[0].encode(x = fused_graph.xx, edge_index = None,
-                                            weights = weights, edge_weight = fused_graph.adj_tensor.detach())
-                    z_val1 = model[1](z_val)
-                    loss1 = torch.nn.MSELoss()(z_val1[fused_graph.test_index[index],int(np.sum(args.dims[:index])):int(np.sum(args.dims[:index]))+args.dims[index]], 
-                                            graph.x[graph.mask,int(np.sum(args.dims[:index])):int(np.sum(args.dims[:index]))+args.dims[index]])
-                    
-                    z_val = model[0].encode(graph.xx, graph.edge_index, weights)
-                    z_val2 = model[1](z_val)
-                    loss2 = torch.nn.MSELoss()(z_val2[graph.mask,int(np.sum(args.dims[:index])):int(np.sum(args.dims[:index]))+args.dims[index]], 
-                                            graph.x[graph.mask,int(np.sum(args.dims[:index])):int(np.sum(args.dims[:index]))+args.dims[index]])
-
-            else:
-                embedding = fused_graph.x
-                output_positive = model[0].encode(x = embedding, edge_index = None,weights = weights, edge_weight = fused_graph.adj_tensor.detach())
-                output_positive = output_positive[cum:cum+graph.x.shape[0],:]
-
-                arr = np.arange(embedding.shape[0])
-                arr[cum+graph.x.shape[0]-1]= arr[cum]-1
-                arr[cum:cum+graph.x.shape[0]] = arr[cum:cum+graph.x.shape[0]] +1
-                
-
-                #arr = fused_graph.arr
-
-                embedding = embedding[arr]
-
-                output_negative = model[0].encode(x = embedding, edge_index = None,weights = weights, edge_weight = fused_graph.adj_tensor.detach())
-                output_negative = output_negative[cum:cum+graph.x.shape[0],:]
-                summary_emb = torch.sigmoid(torch.mean(output_positive, dim=0, keepdim=True))
-                discriminator_summary = model[1](summary_emb).T
-                positive_score = output_positive @ discriminator_summary
-                negative_score = output_negative @ discriminator_summary
-                loss1 = torch.nn.BCEWithLogitsLoss()(positive_score,
-                                                torch.ones_like(positive_score)) + torch.nn.BCEWithLogitsLoss()(
-                negative_score, torch.zeros_like(negative_score))
-
-
-                output_positive = model[0].encode(graph.x, graph.edge_index, weights)
-                arr = torch.arange(graph.x.shape[0]) + 1
-                arr[-1:] = torch.arange(1)
-                output_negative = model[0].encode(graph.x[arr], graph.edge_index, weights)
-                summary_emb = torch.sigmoid(torch.mean(output_positive, dim=0, keepdim=True))
-                discriminator_summary = model[1](summary_emb).T
-                positive_score = output_positive @ discriminator_summary
-                negative_score = output_negative @ discriminator_summary
-                loss2 = torch.nn.BCEWithLogitsLoss()(positive_score,
-                                                torch.ones_like(positive_score)) + torch.nn.BCEWithLogitsLoss()(
-                negative_score, torch.zeros_like(negative_score))
-
-            
-            loss = loss1+loss2
-            
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-
-        print(loss1,loss2)
-        cum+=graph.x.shape[0]
-
-
-        for p in model[0].parameters(): p.requires_grad = False
-        if model[1] is not None: 
-            for p in model[1].parameters(): p.requires_grad = False
-        models.append(model)
-
-
-        
-
-    return models
-
-
-
-
-
-
-def PRIMG_gradient(args, task, pretrain_model, auxiliary, graphs,fugraphs, optimizer,MLPs,wdiscriminator,optimizer_wd,match_graph, epoch, device, file):
-
-
-    fused_graph = lambda_for_adj_new(args, task, pretrain_model, auxiliary,fugraphs, match_graph,device)
-
-
+    meta_losses = get_meta_loss(args, task, pretrain_model, auxiliary,enrich_graph, graphs,match_graph,device)
 
     task_losses = []
 
-    torch.autograd.set_detect_anomaly(True)
+    
 
     pretrain_model.train()
     if auxiliary: auxiliary.train()
@@ -715,7 +657,8 @@ def PRIMG_gradient(args, task, pretrain_model, auxiliary, graphs,fugraphs, optim
         graphs[name] = graphs[name].transformation(MLPs[name],int(np.sum(args.dims[:index])))
         
 
-    graphs['enrich'] = fused_graph
+    graphs['enrich'] = enrich_graph
+    graphs['enrich'].adj = match_graph.get_final_adj(graphs['enrich'].adj,args.threshold)
     if task == 'nmk':graphs['enrich'].original_x = graphs['enrich'].x.clone().detach()
 
 
@@ -756,17 +699,13 @@ def PRIMG_gradient(args, task, pretrain_model, auxiliary, graphs,fugraphs, optim
 
 
         if task == 'edge':
-            if name != 'enrich':
-                graph.link_split(0.2, 0.2)
 
-            print('graph.train_edge_index,',graph.train_edge_index.shape)
             z_val = pretrain_model.encode(graph.x, graph.train_edge_index, weights)
             loss = pretrain_model.recon_loss(z_val, graph.test_edge_index)
             
 
         elif task == 'nmk':
-            
-            graph.attr_split(0.2)
+
             z_val = pretrain_model.encode(graph.x, graph.edge_index, weights)
             z_val = auxiliary(z_val)
             if name == 'enrich':
@@ -834,14 +773,14 @@ def PRIMG_gradient(args, task, pretrain_model, auxiliary, graphs,fugraphs, optim
         task_losses.append(loss)
         print(Dis_loss.item(),loss.item())
 
-    file.write('{},{},{},{}\n'.format(epoch, '-'.join(args.modals), ','.join([str(round(lo.item(),4)) for lo in task_losses]),','.join([str(round(lo.item(),4)) for lo in dis_losses[:4]])))
+    file.write('{},{},{},{},{}\n'.format(epoch, '-'.join(args.modals),','.join([str(round(lo.item(),4)) for lo in meta_losses]), ','.join([str(round(lo.item(),4)) for lo in task_losses]),','.join([str(round(lo.item(),4)) for lo in dis_losses[:4]])))
     file.flush()
 
 
     if len(task_losses) != 0:
         
         optimizer.zero_grad()
-        pretrain_batch_loss = torch.stack(task_losses).mean() + torch.stack(dis_losses).mean() * args.beta
+        pretrain_batch_loss = torch.stack(task_losses).mean() + args.alphs* torch.stack(meta_losses).mean() * args.beta+torch.stack(dis_losses).mean() * args.beta
         pretrain_batch_loss.backward()
 
         optimizer.step()
