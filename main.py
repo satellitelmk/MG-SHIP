@@ -43,7 +43,7 @@ parser.add_argument('--cuda', type = int,default=3)
 
 
         
-def PRIMG_pretrain(args, device,task, index): 
+def MGSHIP_pretrain(args, device,task, index): 
 
     
     file = open('./model/parameter/pretrain_process_for_{}_{}-{}-{}_{}_{}{}.csv'.format(args.dataset,args.modal_text,args.modal_vision,args.modal_structure,task, index,args.info), 'w')
@@ -101,7 +101,7 @@ def PRIMG_pretrain(args, device,task, index):
         subgraphs = dataloader.fetch_subgraph(norm = True)
         dataloader.subgraph_to_tensor(subgraphs, device)
 
-        pretrain_model, loss = PRIMG_gradient(args, task,pretrain_model,auxiliary,subgraphs,optimizer_all, MLPs,wdiscriminator,optimizer_wd,match_graph, epoch, device, file)
+        pretrain_model, loss = MGSHIP_gradient(args, task,pretrain_model,auxiliary,subgraphs,optimizer_all, MLPs,wdiscriminator,optimizer_wd,match_graph, epoch, device, file)
         
         if epoch%3==0: 
 
@@ -150,7 +150,7 @@ def PRIMG_pretrain(args, device,task, index):
 
 
 
-def PRIMG_test1(args, device, index, pretrain_task,ratio, modal_ratio, num, tune = True):
+def MGSHIP_test1(args, device, index, pretrain_task,ratio, modal_ratio, num, tune = True):
     dataset = args.dataset
     task = args.dataset_task[dataset]
     modals = args.modal_names
@@ -219,7 +219,7 @@ def PRIMG_test1(args, device, index, pretrain_task,ratio, modal_ratio, num, tune
 
 
 
-def PRIMG_test2(args, device, index, pretrain_task,ratio, modal_ratio, num, tune = False): 
+def MGSHIP_test2(args, device, index, pretrain_task,ratio, modal_ratio, num, tune = False): 
 
     dataset = args.dataset
     task = args.dataset_task[dataset]
@@ -271,7 +271,7 @@ def PRIMG_test2(args, device, index, pretrain_task,ratio, modal_ratio, num, tune
 
 
 
-def PRIMG_test3(args, device, index, pretrain_task,ratio, modal_ratio, num, tune = False): 
+def MGSHIP_test3(args, device, index, pretrain_task,ratio, modal_ratio, num, tune = False): 
 
 
     dataset = args.dataset
@@ -355,8 +355,8 @@ else:
 
 
 
-PRIMG_pretrain(args, device,'edge',0)
-PRIMG_test3(args, device, 0, 'dgi',0.02, 0.4, 0, tune = True)
+MGSHIP_pretrain(args, device,'edge',0)
+MGSHIP_test3(args, device, 0, 'dgi',0.02, 0.4, 0, tune = True)
 
 
 
