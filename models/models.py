@@ -580,15 +580,16 @@ class ConnectMatch_mlp(torch.nn.Module):
 
 
 
+
+
+
+
 class ConnectMatch(torch.nn.Module):
-    def __init__(self,args,node_dim,proto_num=256):
+    def __init__(self,node_dim,proto_num=256):
         super(ConnectMatch, self).__init__()
         self.node_dim =node_dim
         self.proto_num = proto_num
-        self.modal_encoder = nn.ModuleDict()
-        for modal in args.modal_names:
-            self.modal_encoder[modal] = MLP(node_dim, args.hidden_dims, args.share_dims)
-        self.modal_encoder['virtual'] = MLP(node_dim, args.hidden_dims, args.share_dims)
+
 
         self.super_nodes = torch.nn.Parameter(torch.randn(self.proto_num,self.node_dim,dtype=torch.float))
         self.reset_parameters()
@@ -614,13 +615,12 @@ class ConnectMatch(torch.nn.Module):
             adj[graph.edge_index[0]+cum,graph.edge_index[1]+cum] = 1.0
             cum+=graph.x.shape[0]
 
-        features = torch.cat([self.modal_encoder[name](graphs[name].x.detach()) for name in graphs.keys()],dim = 0)
-        super_nodes = self.modal_encoder['virtual'](self.super_nodes)
+        features = torch.cat([graphs[name].x for name in graphs.keys()],dim = 0)
         adj = adj.to(features)
-        print(super_nodes.dtype,features.dtype)
-        down = F.sigmoid(super_nodes@features.t())
-        features = torch.cat([features,super_nodes],dim=0)
-        right = F.sigmoid(features@super_nodes.t())
+        print(self.super_nodes.dtype,features.dtype)
+        down = F.sigmoid(self.super_nodes@features.t())
+        features = torch.cat([features,self.super_nodes],dim=0)
+        right = F.sigmoid(features@self.super_nodes.t())
 
         adj = torch.cat([adj,down],dim=0)
         adj = torch.cat([adj,right],dim=1)
@@ -628,7 +628,7 @@ class ConnectMatch(torch.nn.Module):
 
         return adj
     
-
+    '''
     def get_final_adj(self,adj,threshold):
 
 
@@ -639,6 +639,22 @@ class ConnectMatch(torch.nn.Module):
         print('rrrrrr',adj[:4096,:4096].sum())
         print('rrrrrr',adj[-self.proto_num:,:4096].sum())
         print('rrrrrr',adj[:4096,-self.proto_num:].sum())
+        print('rrrrrr',adj[-self.proto_num:,-self.proto_num:].sum())
+        return adj.nonzero().t().detach()
+    '''
+
+    
+    def get_final_adj(self,adj,threshold):
+
+
+
+        adj = torch.where(adj>threshold,1,0)
+        num = adj.shape[0]-self.proto_num
+
+
+        print('rrrrrr',adj[:num,:num].sum())
+        print('rrrrrr',adj[-self.proto_num:,:num].sum())
+        print('rrrrrr',adj[:num,-self.proto_num:].sum())
         print('rrrrrr',adj[-self.proto_num:,-self.proto_num:].sum())
         return adj.nonzero().t().detach()
 
