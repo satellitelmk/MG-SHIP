@@ -306,7 +306,7 @@ def MGSHIP_test3(args, device, index, pretrain_task,ratio, modal_ratio, num, tun
         xs[modal] = torch.cat([modal_feat[:,:modal_dim],graph.original_feats[modal],modal_feat[:,modal_dim:]],dim=1).detach()
 
     
-    graph.enrich_adj = connectMatch.get_test_relation(test_graph,xs,args.threshold,task)
+    graph.crossmodal_adj = connectMatch.get_test_relation(test_graph,xs,args.threshold,task)
     graph.anchor_nodes = torch.nn.Parameter(connectMatch.super_nodes.detach().clone()).to(device)
 
 
