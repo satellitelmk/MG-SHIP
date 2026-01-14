@@ -473,7 +473,7 @@ def get_reco_loss(args, task, base_model, base_auxiliary,graphs,match_graph,devi
 
 
 
-    models = lambda_training_new(args, task, base_model, base_auxiliary, fused_graph,graphs,device)
+    models = reco_training_inner(args, task, base_model, base_auxiliary, fused_graph,graphs,device)
 
   
     cum = 0
@@ -573,7 +573,7 @@ def get_reco_loss(args, task, base_model, base_auxiliary,graphs,match_graph,devi
 
 
 
-def lambda_training_new(args, task, base_model, base_auxiliary, fused_graph,graphs,device):
+def reco_training_inner(args, task, base_model, base_auxiliary, fused_graph,graphs,device):
     
     models = []
     cum = 0
