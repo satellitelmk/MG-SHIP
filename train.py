@@ -192,7 +192,7 @@ def train_graph_final(MLPs,model, graph,optimizer,dims,device,file=None):
 
         xs = graph.complete_modalities_graph(xs[0],xs[1],xs[2])
         xs = torch.cat(xs['text'],xs['vision'],xs['structure'],graph.anchor_nodes,dim = 0)
-        embedding = model.encode(xs, graph.enrich_adj, weights)
+        embedding = model.encode(xs, graph.crossmodel_adj, weights)
         num = graph.original_feats['text'].shape[0]
         x_text = embedding[:num,:]
         x_vision = embedding[num:num*2,:]
@@ -226,7 +226,7 @@ def train_graph_final(MLPs,model, graph,optimizer,dims,device,file=None):
 
             xs = graph.complete_modalities_graph(xs[0],xs[1],xs[2])
             xs = torch.cat(xs['text'],xs['vision'],xs['structure'],graph.anchor_nodes,dim = 0)
-            embedding = model.encode(xs, graph.enrich_adj, weights)
+            embedding = model.encode(xs, graph.crossmodel_adj, weights)
             num = graph.original_feats['text'].shape[0]
             x_text = embedding[:num,:]
             x_vision = embedding[num:num*2,:]
@@ -370,7 +370,7 @@ def train_graph(MLPs,model, graph,optimizer,dims,device,file=None):
 
 
 
-def enrich_graph_split(fused_graph,graphs,task):
+def crossmodel_graph_split(fused_graph,graphs,task):
 
     
     
@@ -459,12 +459,12 @@ def enrich_graph_split(fused_graph,graphs,task):
 
 
 
-def get_meta_loss(args, task, base_model, base_auxiliary,enrich_graph,graphs,device):
+def get_meta_loss(args, task, base_model, base_auxiliary,crossmodel_graph,graphs,device):
 
     base_model = deepcopy(base_model).reset_parameters()
     if base_auxiliary: base_auxiliary = deepcopy(base_auxiliary).reset_parameters()
 
-    model = get_inner_model(args, task, base_model, base_auxiliary,enrich_graph,graphs)
+    model = get_inner_model(args, task, base_model, base_auxiliary,crossmodel_graph,graphs)
 
     losses = []
 
@@ -523,7 +523,7 @@ def get_meta_loss(args, task, base_model, base_auxiliary,enrich_graph,graphs,dev
 
 
 
-def get_inner_model(args, task, base_model, base_auxiliary, enrich_graph,graphs):
+def get_inner_model(args, task, base_model, base_auxiliary, crossmodel_graph,graphs):
     
 
     model = deepcopy(base_model),deepcopy(base_auxiliary)
@@ -538,10 +538,10 @@ def get_inner_model(args, task, base_model, base_auxiliary, enrich_graph,graphs)
             weights = OrderedDict(model[0].named_parameters())
 
             if task == 'edge':
-                z_val1 = model[0].encode(x = enrich_graph.x, edge_index = None,
-                                           weights = weights, edge_weight = enrich_graph.adj_tensor.detach())
+                z_val1 = model[0].encode(x = crossmodel_graph.x, edge_index = None,
+                                           weights = weights, edge_weight = crossmodel_graph.adj_tensor.detach())
 
-                loss+= model[0].recon_loss(z_val1, enrich_graph.test_index[index])
+                loss+= model[0].recon_loss(z_val1, crossmodel_graph.test_index[index])
 
             elif task == 'sim':
 
@@ -549,11 +549,11 @@ def get_inner_model(args, task, base_model, base_auxiliary, enrich_graph,graphs)
                 
                 vice_model = gen_ran_output(model[0])
 
-                embedding = enrich_graph.x
-                output_positive = model[0].encode(x = embedding, edge_index = None,weights = weights, edge_weight = enrich_graph.adj_tensor.detach())
+                embedding = crossmodel_graph.x
+                output_positive = model[0].encode(x = embedding, edge_index = None,weights = weights, edge_weight = crossmodel_graph.adj_tensor.detach())
                 #output_positive = output_positive[cum:cum+graph.x.shape[0],:]
 
-                output_negative = vice_model.encode(x = embedding, edge_index = None,weights = weights, edge_weight = enrich_graph.adj_tensor.detach())
+                output_negative = vice_model.encode(x = embedding, edge_index = None,weights = weights, edge_weight = crossmodel_graph.adj_tensor.detach())
                 #output_negative = output_negative[cum:cum+graph.x.shape[0],:]
 
                 loss+= loss_cal2(output_positive,output_negative,model[1])
@@ -565,17 +565,17 @@ def get_inner_model(args, task, base_model, base_auxiliary, enrich_graph,graphs)
 
 
 
-                z_val = model[0].encode(x = enrich_graph.xx, edge_index = None,
-                                        weights = weights, edge_weight = enrich_graph.adj_tensor.detach())
+                z_val = model[0].encode(x = crossmodel_graph.xx, edge_index = None,
+                                        weights = weights, edge_weight = crossmodel_graph.adj_tensor.detach())
                 z_val1 = model[1](z_val)
-                loss += torch.nn.MSELoss()(z_val1[enrich_graph.test_index[index],int(np.sum(args.dims[:index])):int(np.sum(args.dims[:index]))+args.dims[index]], 
+                loss += torch.nn.MSELoss()(z_val1[crossmodel_graph.test_index[index],int(np.sum(args.dims[:index])):int(np.sum(args.dims[:index]))+args.dims[index]], 
                                         graph.x.detach()[graph.mask,int(np.sum(args.dims[:index])):int(np.sum(args.dims[:index]))+args.dims[index]])
                     
 
 
             else:
-                embedding = enrich_graph.x
-                output_positive = model[0].encode(x = embedding, edge_index = None,weights = weights, edge_weight = enrich_graph.adj_tensor.detach())
+                embedding = crossmodel_graph.x
+                output_positive = model[0].encode(x = embedding, edge_index = None,weights = weights, edge_weight = crossmodel_graph.adj_tensor.detach())
                 output_positive = output_positive[cum:cum+graph.x.shape[0],:]
 
                 arr = np.arange(embedding.shape[0])
@@ -587,7 +587,7 @@ def get_inner_model(args, task, base_model, base_auxiliary, enrich_graph,graphs)
 
                 embedding = embedding[arr]
 
-                output_negative = model[0].encode(x = embedding, edge_index = None,weights = weights, edge_weight = enrich_graph.adj_tensor.detach())
+                output_negative = model[0].encode(x = embedding, edge_index = None,weights = weights, edge_weight = crossmodel_graph.adj_tensor.detach())
                 output_negative = output_negative[cum:cum+graph.x.shape[0],:]
                 summary_emb = torch.sigmoid(torch.mean(output_positive, dim=0, keepdim=True))
                 discriminator_summary = model[1](summary_emb).T
@@ -629,21 +629,21 @@ def get_inner_model(args, task, base_model, base_auxiliary, enrich_graph,graphs)
 
 
 
-def PRIMG_gradient(args, task, pretrain_model, auxiliary, graphs, optimizer,MLPs,wdiscriminator,optimizer_wd,match_graph, epoch, device, file):
+def MGSHIP_gradient(args, task, pretrain_model, auxiliary, graphs, optimizer,MLPs,wdiscriminator,optimizer_wd,match_graph, epoch, device, file):
 
     torch.autograd.set_detect_anomaly(True)
     
 
     adj = match_graph(graphs)
 
-    enrich_graph = Graph(None,None)
-    enrich_graph.adj = adj
-    enrich_graph.super_nodes = match_graph.super_nodes
-    enrich_graph.x = torch.cat([graphs[name].x.detach() for name in args.modal_names]+[match_graph.super_nodes],dim =0) 
+    crossmodel_graph = Graph(None,None)
+    crossmodel_graph.adj = adj
+    crossmodel_graph.super_nodes = match_graph.super_nodes
+    crossmodel_graph.x = torch.cat([graphs[name].x.detach() for name in args.modal_names]+[match_graph.super_nodes],dim =0) 
 
-    enrich_graph,graphs = enrich_graph_split(enrich_graph,graphs,task)
+    crossmodel_graph,graphs = crossmodel_graph_split(crossmodel_graph,graphs,task)
 
-    meta_losses = get_meta_loss(args, task, pretrain_model, auxiliary,enrich_graph, graphs,match_graph,device)
+    meta_losses = get_meta_loss(args, task, pretrain_model, auxiliary,crossmodel_graph, graphs,match_graph,device)
 
     task_losses = []
 
@@ -657,13 +657,13 @@ def PRIMG_gradient(args, task, pretrain_model, auxiliary, graphs, optimizer,MLPs
         graphs[name] = graphs[name].transformation(MLPs[name],int(np.sum(args.dims[:index])))
         
 
-    graphs['enrich'] = enrich_graph
-    graphs['enrich'].adj = match_graph.get_final_adj(graphs['enrich'].adj,args.threshold)
-    if task == 'nmk':graphs['enrich'].original_x = graphs['enrich'].x.clone().detach()
+    graphs['crossmodel'] = crossmodel_graph
+    graphs['crossmodel'].adj = match_graph.get_final_adj(graphs['crossmodel'].adj,args.threshold)
+    if task == 'nmk':graphs['crossmodel'].original_x = graphs['crossmodel'].x.clone().detach()
 
 
-    print(graphs['enrich'].x.shape)
-    print(graphs['enrich'].edge_index.shape)
+    print(graphs['crossmodel'].x.shape)
+    print(graphs['crossmodel'].edge_index.shape)
 
 
     weights = OrderedDict(pretrain_model.named_parameters())
@@ -678,18 +678,18 @@ def PRIMG_gradient(args, task, pretrain_model, auxiliary, graphs, optimizer,MLPs
 
         Dis_loss = torch.tensor(0.0).to(device)
         graph= graphs[name]
-        if name!='enrich':
+        if name!='crossmodel':
             
 
             wdiscriminator_copy = copy.deepcopy(
-                train_wdiscriminator(graph, graphs['enrich'], wdiscriminator,
+                train_wdiscriminator(graph, graphs['crossmodel'], wdiscriminator,
                                      optimizer_wd, batch_d_per_iter=80))
 
             for p in wdiscriminator_copy.parameters(): p.requires_grad = False
             wdiscriminator_copy.to(device)
 
 
-            w1 = wdiscriminator_copy( graphs['enrich'].x, graphs['enrich'].edge_index)
+            w1 = wdiscriminator_copy( graphs['crossmodel'].x, graphs['crossmodel'].edge_index)
             w0 = wdiscriminator_copy(graph.x, graph.edge_index)
 
             Dis_loss = (torch.mean(w1) - torch.mean(w0))
@@ -708,7 +708,7 @@ def PRIMG_gradient(args, task, pretrain_model, auxiliary, graphs, optimizer,MLPs
 
             z_val = pretrain_model.encode(graph.x, graph.edge_index, weights)
             z_val = auxiliary(z_val)
-            if name == 'enrich':
+            if name == 'crossmodel':
                 
                 for ind,k in enumerate(args.modals):
                     z_val[ind*args.fuse_scale:(1+ind)*args.fuse_scale,0:int(np.sum(args.dims[:ind]))]=0
@@ -722,7 +722,7 @@ def PRIMG_gradient(args, task, pretrain_model, auxiliary, graphs, optimizer,MLPs
 
             
         elif task == 'sim':
-            if name == 'enrich': 
+            if name == 'crossmodel': 
                 vice_model = gen_ran_output(pretrain_model)
                 output_positive = pretrain_model.encode(graph.x, graph.edge_index, weights)[:graph.num]
                 output_negative = vice_model.encode(graph.x, graph.edge_index, weights)[:graph.num]
@@ -737,7 +737,7 @@ def PRIMG_gradient(args, task, pretrain_model, auxiliary, graphs, optimizer,MLPs
             
 
 
-            if name == 'enrich':
+            if name == 'crossmodel':
                 arr = torch.arange(graph.x.shape[0])#graph.arr
                 output_positive = pretrain_model.encode(graph.x, graph.original_adj, weights)[:graph.num]
                 output_negative = pretrain_model.encode(graph.x[arr], graph.edge_index, weights)[:graph.num]
@@ -760,7 +760,7 @@ def PRIMG_gradient(args, task, pretrain_model, auxiliary, graphs, optimizer,MLPs
             negative_score = output_negative @ discriminator_summary
 
 
-            if name == 'enrich': loss = (torch.nn.BCEWithLogitsLoss()(positive_score, #0.1
+            if name == 'crossmodel': loss = (torch.nn.BCEWithLogitsLoss()(positive_score, #0.1
                                                 torch.ones_like(positive_score)) + torch.nn.BCEWithLogitsLoss()(
             negative_score, torch.zeros_like(negative_score)))
             else:loss = torch.nn.BCEWithLogitsLoss()(positive_score,
